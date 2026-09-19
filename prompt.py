@@ -25,7 +25,7 @@ _TASK = (
 )
 
 # Section 4: goes to every arm for symmetry. Not an anti-reasoning instruction.
-_TAGS = ("Do not include internal or system XML tags in your response.")
+_TAGS = "Do not include internal or system XML tags in your response."
 
 # Module-level cache for descriptions. Section 3 requires them verbatim,
 # so they are read from the committed file once and reused.

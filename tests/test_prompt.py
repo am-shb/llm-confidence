@@ -75,13 +75,46 @@ def test_json_schema_requires_all_seven_keys_in_shuffled_order():
     assert schema["strict"] is True
 
 
-def test_prompt_body_is_identical_across_mechanisms_except_the_output_rule():
+def test_all_mechanisms_share_a_byte_identical_body():
+    """Section 4 requires the SAME prompt content for every LLM arm, with only
+    the final output instruction differing. Assert that exactly: everything up
+    to the divergence point must be byte-identical, and the whole of the
+    item-specific content must live inside that shared region. A marker
+    substring check would not catch _body() being duplicated and drifting.
+    """
+    import functools
+
     bodies = {}
     for mech in ("verbalized", "letter", "decisions"):
         msgs = prompt.build_prompt(ITEM, mech)
         bodies[mech] = next(m["content"] for m in msgs if m["role"] == "user")
-    shared = prompt.SHARED_BODY_MARKER
-    assert all(shared in b for b in bodies.values())
+
+    def common_prefix(a, b):
+        limit = min(len(a), len(b))
+        i = 0
+        while i < limit and a[i] == b[i]:
+            i += 1
+        return a[:i]
+
+    shared = functools.reduce(common_prefix, bodies.values())
+
+    # The entire task framing and every item-specific field must be shared.
+    assert prompt.SHARED_BODY_MARKER in shared
+    assert ITEM["title"] in shared
+    assert ITEM["abstract"].strip()[:60] in shared
+    for label in P.LABELS:
+        assert label in shared, f"{label} must be in the shared body"
+    for letter in prompt.LETTERS:
+        assert f"{letter}." in shared, "option lettering must be shared"
+
+    # What differs must be ONLY the trailing output instruction, and each
+    # mechanism's remainder must still carry the universal XML-tag rule.
+    for mech, body in bodies.items():
+        tail = body[len(shared):]
+        assert tail, f"{mech} must have a distinct output instruction"
+        assert "XML" in tail or "XML" in shared
+        assert ITEM["abstract"].strip()[:60] not in tail, \
+            f"{mech}: item content leaked into the divergent tail"
 
 
 def test_unknown_mechanism_raises():
