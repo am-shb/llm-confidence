@@ -1,7 +1,7 @@
 [
   {
     "item": "2608.19621",
-    "shape": "plain",
+    "shape": "chat_completions_plain",
     "status": 400,
     "request": {
       "model": "typesafe/jev-1.13",
@@ -28,203 +28,57 @@
   },
   {
     "item": "2608.19621",
-    "shape": "tool_required",
-    "status": 400,
+    "shape": "decisions",
+    "status": 200,
     "request": {
       "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nB. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nC. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nD. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nE. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\nF. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nG. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\n\nTitle: Mitigating Identity Essentialism in LLM Agents with Longitudinal Life Trajectories\n\nAbstract: Large language models (LLMs) offer a scalable approach to social simulation, but their credibility depends on how agents are constructed. Existing methods can partially reproduce population-level patterns, yet often fail to capture human-like diversity. Our analysis shows that static-profile agents exhibit stronger demographic separation and within-group compression than humans, a pattern consistent with identity essentialism: demographic labels can encourage models to treat group-average tendencies as individual traits, homogenizing responses within groups. We argue that this limitation arises from two related factors: sparse, static agent representations and the limited ability of prompt-only memory to persistently integrate experience. Inspired by complementary memory systems, we propose LifeMem, a longitudinal memory framework that combines structured life-event retrieval with agent-specific parametric memory for experience integration. Experiments on Add Health and Understanding Society with three LLMs show that LifeMem improves alignment with human data in terms of response distributions, overall and within-group diversity, and patterns of within-person response change across life stages. These findings highlight the value of longitudinal life-event memory for constructing more faithful and dynamically evolving social agents.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "tools": [
-        {
-          "type": "function",
-          "function": {
-            "name": "choose_category",
-            "description": "Return the primary arXiv category.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "category": {
-                  "type": "string",
-                  "enum": [
-                    "cs.IR",
-                    "cs.RO",
-                    "cs.AI",
-                    "cs.CV",
-                    "cs.CR",
-                    "cs.LG",
-                    "cs.CL"
-                  ]
-                }
-              },
-              "required": [
-                "category"
-              ]
-            }
-          }
-        }
-      ],
-      "tool_choice": "required"
-    },
-    "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
-      },
-      "user_id": "<redacted>"
-    }
-  },
-  {
-    "item": "2608.19621",
-    "shape": "tool_named",
-    "status": 400,
-    "request": {
-      "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nB. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nC. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nD. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nE. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\nF. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nG. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\n\nTitle: Mitigating Identity Essentialism in LLM Agents with Longitudinal Life Trajectories\n\nAbstract: Large language models (LLMs) offer a scalable approach to social simulation, but their credibility depends on how agents are constructed. Existing methods can partially reproduce population-level patterns, yet often fail to capture human-like diversity. Our analysis shows that static-profile agents exhibit stronger demographic separation and within-group compression than humans, a pattern consistent with identity essentialism: demographic labels can encourage models to treat group-average tendencies as individual traits, homogenizing responses within groups. We argue that this limitation arises from two related factors: sparse, static agent representations and the limited ability of prompt-only memory to persistently integrate experience. Inspired by complementary memory systems, we propose LifeMem, a longitudinal memory framework that combines structured life-event retrieval with agent-specific parametric memory for experience integration. Experiments on Add Health and Understanding Society with three LLMs show that LifeMem improves alignment with human data in terms of response distributions, overall and within-group diversity, and patterns of within-person response change across life stages. These findings highlight the value of longitudinal life-event memory for constructing more faithful and dynamically evolving social agents.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "tools": [
-        {
-          "type": "function",
-          "function": {
-            "name": "choose_category",
-            "description": "Return the primary arXiv category.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "category": {
-                  "type": "string",
-                  "enum": [
-                    "cs.IR",
-                    "cs.RO",
-                    "cs.AI",
-                    "cs.CV",
-                    "cs.CR",
-                    "cs.LG",
-                    "cs.CL"
-                  ]
-                }
-              },
-              "required": [
-                "category"
-              ]
-            }
-          }
-        }
-      ],
-      "tool_choice": {
-        "type": "function",
-        "function": {
-          "name": "choose_category"
-        }
-      }
-    },
-    "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
-      },
-      "user_id": "<redacted>"
-    }
-  },
-  {
-    "item": "2608.19621",
-    "shape": "response_format_enum",
-    "status": 400,
-    "request": {
-      "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nB. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nC. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nD. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nE. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\nF. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nG. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\n\nTitle: Mitigating Identity Essentialism in LLM Agents with Longitudinal Life Trajectories\n\nAbstract: Large language models (LLMs) offer a scalable approach to social simulation, but their credibility depends on how agents are constructed. Existing methods can partially reproduce population-level patterns, yet often fail to capture human-like diversity. Our analysis shows that static-profile agents exhibit stronger demographic separation and within-group compression than humans, a pattern consistent with identity essentialism: demographic labels can encourage models to treat group-average tendencies as individual traits, homogenizing responses within groups. We argue that this limitation arises from two related factors: sparse, static agent representations and the limited ability of prompt-only memory to persistently integrate experience. Inspired by complementary memory systems, we propose LifeMem, a longitudinal memory framework that combines structured life-event retrieval with agent-specific parametric memory for experience integration. Experiments on Add Health and Understanding Society with three LLMs show that LifeMem improves alignment with human data in terms of response distributions, overall and within-group diversity, and patterns of within-person response change across life stages. These findings highlight the value of longitudinal life-event memory for constructing more faithful and dynamically evolving social agents.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "response_format": {
-        "type": "json_schema",
-        "json_schema": {
-          "name": "category_distribution",
-          "strict": true,
-          "schema": {
-            "type": "object",
-            "properties": {
-              "cs.IR": {
-                "type": "number",
-                "description": "Probability the primary category is cs.IR"
-              },
-              "cs.RO": {
-                "type": "number",
-                "description": "Probability the primary category is cs.RO"
-              },
-              "cs.AI": {
-                "type": "number",
-                "description": "Probability the primary category is cs.AI"
-              },
-              "cs.CV": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CV"
-              },
-              "cs.CR": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CR"
-              },
-              "cs.LG": {
-                "type": "number",
-                "description": "Probability the primary category is cs.LG"
-              },
-              "cs.CL": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CL"
-              }
-            },
-            "required": [
-              "cs.IR",
-              "cs.RO",
-              "cs.AI",
-              "cs.CV",
-              "cs.CR",
-              "cs.LG",
-              "cs.CL"
-            ],
-            "additionalProperties": false
+      "state": "Title: Mitigating Identity Essentialism in LLM Agents with Longitudinal Life Trajectories\n\nAbstract: Large language models (LLMs) offer a scalable approach to social simulation, but their credibility depends on how agents are constructed. Existing methods can partially reproduce population-level patterns, yet often fail to capture human-like diversity. Our analysis shows that static-profile agents exhibit stronger demographic separation and within-group compression than humans, a pattern consistent with identity essentialism: demographic labels can encourage models to treat group-average tendencies as individual traits, homogenizing responses within groups. We argue that this limitation arises from two related factors: sparse, static agent representations and the limited ability of prompt-only memory to persistently integrate experience. Inspired by complementary memory systems, we propose LifeMem, a longitudinal memory framework that combines structured life-event retrieval with agent-specific parametric memory for experience integration. Experiments on Add Health and Understanding Society with three LLMs show that LifeMem improves alignment with human data in terms of response distributions, overall and within-group diversity, and patterns of within-person response change across life stages. These findings highlight the value of longitudinal life-event memory for constructing more faithful and dynamically evolving social agents.",
+      "questions": {
+        "primary_category": {
+          "type": "choice",
+          "instructions": "Which arXiv primary category did the authors submit this paper under?",
+          "criteria": {
+            "cs.IR": "Information Retrieval: Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.",
+            "cs.RO": "Robotics: Roughly includes material in ACM Subject Class I.2.9.",
+            "cs.AI": "Artificial Intelligence: Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.",
+            "cs.CV": "Computer Vision and Pattern Recognition: Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.",
+            "cs.CR": "Cryptography and Security: Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.",
+            "cs.LG": "Machine Learning: Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.",
+            "cs.CL": "Computation and Language: Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area."
           }
         }
       }
     },
     "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
+      "model": "typesafe/jev-1.13-20260917",
+      "answers": {
+        "primary_category": {
+          "type": "choice",
+          "choice": "cs.CL",
+          "probabilities": {
+            "cs.CL": 0.83,
+            "cs.CV": 0,
+            "cs.AI": 0.15,
+            "cs.IR": 0,
+            "cs.CR": 0,
+            "cs.LG": 0.02,
+            "cs.RO": 0
+          },
+          "confidence": 0.8
+        }
       },
-      "user_id": "<redacted>"
+      "usage": {
+        "input_tokens": 1058,
+        "output_tokens": 78,
+        "cost": 4.4436e-05
+      },
+      "id": "gen-dec-1789845969-PtfER6tk7Z2Ys5OYHnez",
+      "provider": "TypeSafe"
     }
   },
   {
     "item": "2608.19670",
-    "shape": "plain",
+    "shape": "chat_completions_plain",
     "status": 400,
     "request": {
       "model": "typesafe/jev-1.13",
@@ -251,198 +105,52 @@
   },
   {
     "item": "2608.19670",
-    "shape": "tool_required",
-    "status": 400,
+    "shape": "decisions",
+    "status": 200,
     "request": {
       "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nB. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nC. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nD. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nE. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nF. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\nG. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\n\nTitle: The Asymmetric Harms of LLM Compression\n\nAbstract: Large language models (LLMs) compression reduces deployment costs, but standard aggregate metrics like perplexity and accuracy often mask underlying behavioral shifts. In this work, we systematically evaluate 3 LLMs across 11 compression methods to investigate the effects of compression on knowledge retention, model confidence, and social bias. We find that compression disproportionately reduces the relative retention of head knowledge compared to tail knowledge. Furthermore, compressed models often remain substantially confident in their incorrect answers on newly lost knowledge. Finally, we demonstrate that stable aggregate bias scores can conceal substantial, opposing shifts in stereotypical preferences across demographic subgroups. Together, these findings reveal asymmetric behavioral changes that aggregate performance measures fail to capture, highlighting the need for granular evaluation of compressed models before deployment.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "tools": [
-        {
-          "type": "function",
-          "function": {
-            "name": "choose_category",
-            "description": "Return the primary arXiv category.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "category": {
-                  "type": "string",
-                  "enum": [
-                    "cs.AI",
-                    "cs.IR",
-                    "cs.CV",
-                    "cs.LG",
-                    "cs.RO",
-                    "cs.CL",
-                    "cs.CR"
-                  ]
-                }
-              },
-              "required": [
-                "category"
-              ]
-            }
-          }
-        }
-      ],
-      "tool_choice": "required"
-    },
-    "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
-      },
-      "user_id": "<redacted>"
-    }
-  },
-  {
-    "item": "2608.19670",
-    "shape": "tool_named",
-    "status": 400,
-    "request": {
-      "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nB. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nC. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nD. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nE. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nF. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\nG. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\n\nTitle: The Asymmetric Harms of LLM Compression\n\nAbstract: Large language models (LLMs) compression reduces deployment costs, but standard aggregate metrics like perplexity and accuracy often mask underlying behavioral shifts. In this work, we systematically evaluate 3 LLMs across 11 compression methods to investigate the effects of compression on knowledge retention, model confidence, and social bias. We find that compression disproportionately reduces the relative retention of head knowledge compared to tail knowledge. Furthermore, compressed models often remain substantially confident in their incorrect answers on newly lost knowledge. Finally, we demonstrate that stable aggregate bias scores can conceal substantial, opposing shifts in stereotypical preferences across demographic subgroups. Together, these findings reveal asymmetric behavioral changes that aggregate performance measures fail to capture, highlighting the need for granular evaluation of compressed models before deployment.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "tools": [
-        {
-          "type": "function",
-          "function": {
-            "name": "choose_category",
-            "description": "Return the primary arXiv category.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "category": {
-                  "type": "string",
-                  "enum": [
-                    "cs.AI",
-                    "cs.IR",
-                    "cs.CV",
-                    "cs.LG",
-                    "cs.RO",
-                    "cs.CL",
-                    "cs.CR"
-                  ]
-                }
-              },
-              "required": [
-                "category"
-              ]
-            }
-          }
-        }
-      ],
-      "tool_choice": {
-        "type": "function",
-        "function": {
-          "name": "choose_category"
-        }
-      }
-    },
-    "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
-      },
-      "user_id": "<redacted>"
-    }
-  },
-  {
-    "item": "2608.19670",
-    "shape": "response_format_enum",
-    "status": 400,
-    "request": {
-      "model": "typesafe/jev-1.13",
-      "provider": {
-        "order": [
-          "TypeSafe"
-        ],
-        "allow_fallbacks": false
-      },
-      "messages": [
-        {
-          "role": "user",
-          "content": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nCandidate categories:\nA. cs.AI (Artificial Intelligence): Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.\nB. cs.IR (Information Retrieval): Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.\nC. cs.CV (Computer Vision and Pattern Recognition): Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.\nD. cs.LG (Machine Learning): Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.\nE. cs.RO (Robotics): Roughly includes material in ACM Subject Class I.2.9.\nF. cs.CL (Computation and Language): Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.\nG. cs.CR (Cryptography and Security): Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.\n\nTitle: The Asymmetric Harms of LLM Compression\n\nAbstract: Large language models (LLMs) compression reduces deployment costs, but standard aggregate metrics like perplexity and accuracy often mask underlying behavioral shifts. In this work, we systematically evaluate 3 LLMs across 11 compression methods to investigate the effects of compression on knowledge retention, model confidence, and social bias. We find that compression disproportionately reduces the relative retention of head knowledge compared to tail knowledge. Furthermore, compressed models often remain substantially confident in their incorrect answers on newly lost knowledge. Finally, we demonstrate that stable aggregate bias scores can conceal substantial, opposing shifts in stereotypical preferences across demographic subgroups. Together, these findings reveal asymmetric behavioral changes that aggregate performance measures fail to capture, highlighting the need for granular evaluation of compressed models before deployment.\n\nChoose the category you believe is the primary one.\n\nDo not include internal or system XML tags in your response."
-        }
-      ],
-      "response_format": {
-        "type": "json_schema",
-        "json_schema": {
-          "name": "category_distribution",
-          "strict": true,
-          "schema": {
-            "type": "object",
-            "properties": {
-              "cs.AI": {
-                "type": "number",
-                "description": "Probability the primary category is cs.AI"
-              },
-              "cs.IR": {
-                "type": "number",
-                "description": "Probability the primary category is cs.IR"
-              },
-              "cs.CV": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CV"
-              },
-              "cs.LG": {
-                "type": "number",
-                "description": "Probability the primary category is cs.LG"
-              },
-              "cs.RO": {
-                "type": "number",
-                "description": "Probability the primary category is cs.RO"
-              },
-              "cs.CL": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CL"
-              },
-              "cs.CR": {
-                "type": "number",
-                "description": "Probability the primary category is cs.CR"
-              }
-            },
-            "required": [
-              "cs.AI",
-              "cs.IR",
-              "cs.CV",
-              "cs.LG",
-              "cs.RO",
-              "cs.CL",
-              "cs.CR"
-            ],
-            "additionalProperties": false
+      "state": "Title: The Asymmetric Harms of LLM Compression\n\nAbstract: Large language models (LLMs) compression reduces deployment costs, but standard aggregate metrics like perplexity and accuracy often mask underlying behavioral shifts. In this work, we systematically evaluate 3 LLMs across 11 compression methods to investigate the effects of compression on knowledge retention, model confidence, and social bias. We find that compression disproportionately reduces the relative retention of head knowledge compared to tail knowledge. Furthermore, compressed models often remain substantially confident in their incorrect answers on newly lost knowledge. Finally, we demonstrate that stable aggregate bias scores can conceal substantial, opposing shifts in stereotypical preferences across demographic subgroups. Together, these findings reveal asymmetric behavioral changes that aggregate performance measures fail to capture, highlighting the need for granular evaluation of compressed models before deployment.",
+      "questions": {
+        "primary_category": {
+          "type": "choice",
+          "instructions": "Which arXiv primary category did the authors submit this paper under?",
+          "criteria": {
+            "cs.AI": "Artificial Intelligence: Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.",
+            "cs.IR": "Information Retrieval: Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4.",
+            "cs.CV": "Computer Vision and Pattern Recognition: Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.",
+            "cs.LG": "Machine Learning: Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.",
+            "cs.RO": "Robotics: Roughly includes material in ACM Subject Class I.2.9.",
+            "cs.CL": "Computation and Language: Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.",
+            "cs.CR": "Cryptography and Security: Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3."
           }
         }
       }
     },
     "response": {
-      "error": {
-        "message": "typesafe/jev-1.13 is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead.",
-        "code": 400
+      "model": "typesafe/jev-1.13-20260917",
+      "answers": {
+        "primary_category": {
+          "type": "choice",
+          "choice": "cs.CL",
+          "probabilities": {
+            "cs.CL": 0.86,
+            "cs.LG": 0.13,
+            "cs.CR": 0,
+            "cs.RO": 0,
+            "cs.IR": 0,
+            "cs.CV": 0,
+            "cs.AI": 0.01
+          },
+          "confidence": 0.84
+        }
       },
-      "user_id": "<redacted>"
+      "usage": {
+        "input_tokens": 980,
+        "output_tokens": 78,
+        "cost": 4.116e-05
+      },
+      "id": "gen-dec-1789845969-myFAvNY0UfUDOJzuR3r4",
+      "provider": "TypeSafe"
     }
   }
 ]
