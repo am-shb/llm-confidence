@@ -95,3 +95,14 @@ def floor_renorm(vec, eps=EPSILON):
     v = np.full(K, 1.0 / K) if total <= 0 else v / total
     v = np.maximum(v, eps)
     return v / v.sum()
+
+
+def provider_block(arm):
+    """The OpenRouter `provider` field for one arm.
+
+    Section 4 requires pinning the provider with allow_fallbacks disabled on
+    every arm: a silent reroute changes structured-output support and, on the
+    Qwen arms, the quantization whose distribution Q-L reads. Centralised here
+    so the rule is written once.
+    """
+    return {"order": [ARMS[arm]["provider"]], "allow_fallbacks": False}
