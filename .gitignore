@@ -1,6 +1,15 @@
 # Intermediate arXiv API responses; regenerate with harvest_arxiv.py
 raw/
 
+# Secrets. .env.example is the committed template; .env never is.
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # Scratch
 *.bak
 *.long

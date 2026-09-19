@@ -95,6 +95,21 @@ than sklearn defaults.
 HTTP stays on stdlib `urllib` plus `concurrent.futures.ThreadPoolExecutor`,
 matching `harvest_arxiv.py`, whose retry and backoff shape is reused.
 
+### 3.1 Credentials
+
+All six LLM arms route through OpenRouter, so `OPENROUTER_API_KEY` is the only
+credential the study needs; arms A, P and P\* are local and need none.
+
+`.env.example` is committed as the template and carries no real value.
+`.env` is gitignored, mode 600, and read by `protocol.py` so that no key is ever
+passed on a command line, where it would land in shell history and in the
+recorded request parameters. `run.py` records request parameters per response,
+so the loader must keep the key out of anything it serializes.
+
+`QWEN_LOCAL_BASE_URL` is present but empty. It is used only if phase 5 finds the
+pinned Parasail endpoint does not return answer-token logprobs in practice and
+the Qwen arms move to local vLLM serving, per section 2.1.
+
 ## 4. Module layout
 
 Small single-purpose scripts over one shared module. The run phase is hours of
