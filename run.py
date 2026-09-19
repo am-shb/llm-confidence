@@ -168,12 +168,22 @@ def call(arm, item):
             last_error = f"{type(exc).__name__}: {exc}"
             if attempt < MAX_ATTEMPTS - 1:
                 time.sleep(10)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # Deliberately broad. Section 5 requires every item to produce a
+            # record; an unhandled exception here would bypass the write lock
+            # and drop the item entirely. Anything unexpected becomes a
+            # recorded failure instead. Does not catch KeyboardInterrupt or
+            # SystemExit, which derive from BaseException.
+            last_error = f"{type(exc).__name__}: {exc}"
+            if attempt < MAX_ATTEMPTS - 1:
+                time.sleep(10)
 
     # Section 5: a timeout after 3 retries is a failure, never a dropped item.
     return {
         "id": item["id"], "arm": arm, "status": "failure",
         "error": last_error, "attempts": MAX_ATTEMPTS,
         "request": P.redact(payload), "response": None,
+        "provider": None,
         "latency_s": round(time.time() - started, 3),
         "timestamp": dt.datetime.now(dt.UTC).isoformat(),
     }
@@ -252,7 +262,14 @@ def main():
     fh = open(out_path, "a", encoding="utf-8")
 
     def handle(item):
-        rec = call(args.arm, item)
+        try:
+            rec = call(args.arm, item)
+        except BaseException as exc:      # last-resort guard
+            rec = {"id": item["id"], "arm": args.arm, "status": "failure",
+                   "error": f"unhandled in call(): {type(exc).__name__}: {exc}",
+                   "attempts": MAX_ATTEMPTS, "request": None, "response": None,
+                   "provider": None, "latency_s": None,
+                   "timestamp": dt.datetime.now(dt.UTC).isoformat()}
         with _write_lock:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             fh.flush()

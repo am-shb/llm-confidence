@@ -1,4 +1,8 @@
 import json
+import urllib.error
+
+import pytest
+
 import protocol as P
 import run
 
@@ -136,3 +140,53 @@ def test_endpoint_snapshot_records_quantization_and_params(tmp_path):
 def test_endpoint_snapshot_confirms_ql_logprobs_are_advertised(tmp_path):
     snap = run.snapshot_endpoint("Q-L", out_dir=str(tmp_path))
     assert "logprobs" in (snap["supported_parameters"] or [])
+
+
+def test_failure_record_has_the_full_documented_shape(monkeypatch):
+    """Section 5: failures are recorded, never dropped -- and downstream code
+    reads a fixed set of keys, so a failure record must carry them all.
+    """
+    def boom(payload, url=run.CHAT_URL):
+        raise urllib.error.URLError("no network")
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    rec = run.call("Q-L", ITEM)
+    assert rec["status"] == "failure"
+    for key in ("id", "arm", "request", "response", "status", "provider",
+                "latency_s", "timestamp"):
+        assert key in rec, f"failure record must carry {key}"
+    assert rec["response"] is None
+
+
+def test_an_unexpected_exception_still_produces_a_failure_record(monkeypatch):
+    """The specific handlers cannot be exhaustive. Anything unexpected must
+    become a recorded failure rather than escaping and dropping the item.
+    """
+    def boom(payload, url=run.CHAT_URL):
+        raise RuntimeError("something nobody predicted")
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    rec = run.call("Q-L", ITEM)
+    assert rec["status"] == "failure"
+    assert "RuntimeError" in rec["error"]
+    assert "provider" in rec
+
+
+def test_snapshot_endpoint_hard_stops_when_the_pin_is_not_serving(monkeypatch, tmp_path):
+    """A silent reroute would change Q-L's quantization and destroy C3, so a
+    missing pin must stop the run rather than fall back.
+    """
+    payload = {"data": {"endpoints": [
+        {"provider_name": "SomeoneElse", "quantization": "fp8",
+         "supported_parameters": [], "context_length": 1, "pricing": {}}]}}
+
+    class FakeResponse:
+        def read(self): return json.dumps(payload).encode("utf-8")
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(run.urllib.request, "urlopen", lambda *a, **k: FakeResponse())
+    with pytest.raises(SystemExit, match="Parasail|STOP"):
+        run.snapshot_endpoint("Q-V", out_dir=str(tmp_path))
