@@ -28,3 +28,12 @@ Section 2's per-class numbers are expectations from the post-start pool proporti
 - duplicate ids: 0
 - abstracts under 100 chars: 0
 - abstract words, median: 190, p95: 259
+
+
+## Provenance and reproducibility
+
+- numpy: 2.3.3 (pinned in `requirements.txt`)
+- source CSV SHA-256: `b625441d7802d7ec53d7093a2e9e729695f8faef619ec2a82afbd46232c4d9ad`
+- seeds: evaluation 20260920, dev 20260921, option shuffle 20260922
+
+The committed `pools/*.jsonl` manifests are the authoritative record. Re-running `pools.py` reproduces them byte-for-byte under the pinned numpy version; numpy guarantees a stable stream per BitGenerator and seed, but not that `Generator` method output is identical across versions, so a different numpy may derive a different sample from the same seeds. The manifests, not the derivation, are what the pre-registration is checked against.

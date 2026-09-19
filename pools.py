@@ -147,6 +147,20 @@ def _counts_md(pools_by_name, report):
               f"- abstracts under 100 chars: {report['short_abstracts']}",
               f"- abstract words, median: {report['median_words']}, "
               f"p95: {report['p95_words']}", ""]
+    lines += ["", "## Provenance and reproducibility", "",
+              f"- numpy: {np.__version__} (pinned in `requirements.txt`)",
+              f"- source CSV SHA-256: `{P.CSV_SHA256}`",
+              f"- seeds: evaluation {P.SEEDS['evaluation']}, dev {P.SEEDS['dev']}, "
+              f"option shuffle {P.SEEDS['shuffle']}",
+              "",
+              "The committed `pools/*.jsonl` manifests are the authoritative record. "
+              "Re-running `pools.py` reproduces them byte-for-byte under the pinned "
+              "numpy version; numpy guarantees a stable stream per BitGenerator and "
+              "seed, but not that `Generator` method output is identical across "
+              "versions, so a different numpy may derive a different sample from the "
+              "same seeds. The manifests, not the derivation, are what the "
+              "pre-registration is checked against.",
+              ""]
     return "\n".join(lines)
 
 
