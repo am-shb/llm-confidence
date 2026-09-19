@@ -101,7 +101,7 @@ def test_all_mechanisms_share_a_byte_identical_body():
     # The entire task framing and every item-specific field must be shared.
     assert prompt.SHARED_BODY_MARKER in shared
     assert ITEM["title"] in shared
-    assert ITEM["abstract"].strip()[:60] in shared
+    assert ITEM["abstract"].strip() in shared
     for label in P.LABELS:
         assert label in shared, f"{label} must be in the shared body"
     for letter in prompt.LETTERS:
@@ -112,7 +112,8 @@ def test_all_mechanisms_share_a_byte_identical_body():
     for mech, body in bodies.items():
         tail = body[len(shared):]
         assert tail, f"{mech} must have a distinct output instruction"
-        assert "XML" in tail or "XML" in shared
+        assert "XML" in tail, f"{mech} must carry the universal XML-tag instruction"
+        # A prefix, not the full abstract: a partial leak should also trip this.
         assert ITEM["abstract"].strip()[:60] not in tail, \
             f"{mech}: item content leaked into the divergent tail"
 
