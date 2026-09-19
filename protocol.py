@@ -85,6 +85,10 @@ ARMS = {
 
 LLM_ARMS = ["J", "F1-V", "F2-V", "Q-V", "Q-L"]
 
+# Arm J's question key in the decisions payload and in the response's `answers`
+# map. One name, used by both run.py and parse.py, so they cannot disagree.
+JEV_QUESTION_KEY = "primary_category"
+
 
 def floor_renorm(vec, eps=EPSILON):
     """PROTOCOL.md section 5 step 3: floor at epsilon, then renormalize.

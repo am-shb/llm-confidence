@@ -121,3 +121,13 @@ def test_all_mechanisms_share_a_byte_identical_body():
 def test_unknown_mechanism_raises():
     with pytest.raises(ValueError):
         prompt.build_prompt(ITEM, "telepathy")
+
+
+def test_jev_instructions_share_the_same_task_text_and_xml_tag_rule():
+    """Section 4's "same prompt content for every arm" claim must hold across
+    the transport boundary too: JEV_INSTRUCTIONS is built from the same _TASK
+    the chat arms use, not a hand-kept second copy that could drift.
+    """
+    assert prompt.SHARED_BODY_MARKER in prompt.JEV_INSTRUCTIONS
+    assert "XML" in prompt.JEV_INSTRUCTIONS
+    assert prompt.JEV_INSTRUCTIONS.startswith(prompt._TASK)

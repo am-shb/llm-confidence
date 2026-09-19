@@ -27,6 +27,13 @@ _TASK = (
 # Section 4: goes to every arm for symmetry. Not an anti-reasoning instruction.
 _TAGS = "Do not include internal or system XML tags in your response."
 
+# Arm J's `instructions` field. Derived from the SAME _TASK text the chat arms
+# receive, plus section 4's universal XML-tag line, so section 4's "same prompt
+# content" claim holds across the transport boundary rather than relying on two
+# hand-kept copies agreeing. J emits no free text, so the tag line is inert for
+# it -- it is present because section 4 says the instruction goes to every arm.
+JEV_INSTRUCTIONS = f"{_TASK}\n{_TAGS}"
+
 # Module-level cache for descriptions. Section 3 requires them verbatim,
 # so they are read from the committed file once and reused.
 _DESCRIPTIONS = None
