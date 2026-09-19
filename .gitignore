@@ -1,0 +1,6 @@
+# Intermediate arXiv API responses; regenerate with harvest_arxiv.py
+raw/
+
+# Scratch
+*.bak
+*.long
