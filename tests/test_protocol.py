@@ -1,3 +1,4 @@
+import csv as _csv
 import numpy as np
 import pytest
 import protocol as P
@@ -93,3 +94,41 @@ def test_provider_block_pins_and_disables_fallbacks():
         assert block["order"] == [P.ARMS[arm]["provider"]]
     assert P.provider_block("Q-V") == P.provider_block("Q-L"), \
         "C3 requires both Qwen arms on one identical backend"
+
+
+def test_csv_sha256_matches_the_recorded_hash():
+    assert P.csv_sha256(P.CSV_PATH) == P.CSV_SHA256
+
+
+def test_load_rows_rejects_a_file_whose_hash_differs(tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_text("id,primary_category,published,abstract,title\n1,cs.AI,2026-09-06T00:00:00Z,x,y\n")
+    with pytest.raises(ValueError, match="SHA-256"):
+        P.load_rows(str(bad))
+
+
+def test_load_rows_can_skip_verification_for_fixtures(tmp_path):
+    f = tmp_path / "f.csv"
+    f.write_text("id,primary_category,published,abstract,title\n1,cs.AI,2026-09-06T00:00:00Z,x,y\n")
+    assert len(P.load_rows(str(f), verify=False)) == 1
+
+
+def test_in_set_keeps_only_the_seven_primary_categories():
+    rows = [{"primary_category": c} for c in ["cs.AI", "cs.SE", "cs.CV", "stat.ML"]]
+    assert [r["primary_category"] for r in P.in_set(rows)] == ["cs.AI", "cs.CV"]
+
+
+def test_real_csv_reproduces_the_protocol_totals():
+    rows = P.in_set(P.load_rows())
+    assert len(rows) == P.EXPECTED["in_set"]
+    post = [r for r in rows if r["published"][:10] >= P.START_DATE]
+    assert len(post) == P.EXPECTED["post_start"]
+    pre = [r for r in rows if r["published"][:10] < P.START_DATE]
+    assert len(pre) - P.POOL_SIZES["dev"] == P.EXPECTED["anchor"]
+
+
+def test_integrity_report_finds_no_duplicates_or_short_abstracts():
+    rep = P.integrity_report(P.in_set(P.load_rows()))
+    assert rep["duplicate_ids"] == 0
+    assert rep["short_abstracts"] == 0
+    assert 185 <= rep["median_words"] <= 195

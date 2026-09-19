@@ -8,6 +8,10 @@ in two places they can drift, and the pre-registration stops being checkable.
 Nothing here is Jev-specific; Jev is arm J of eight.
 """
 
+import csv
+import hashlib
+import statistics
+
 import numpy as np
 
 LABELS = ["cs.CV", "cs.LG", "cs.AI", "cs.RO", "cs.CL", "cs.CR", "cs.IR"]
@@ -106,3 +110,51 @@ def provider_block(arm):
     so the rule is written once.
     """
     return {"order": [ARMS[arm]["provider"]], "allow_fallbacks": False}
+
+
+csv.field_size_limit(10 ** 9)  # abstracts are long; the default limit trips
+
+
+def csv_sha256(path=CSV_PATH):
+    """Stream the file so a 50MB CSV does not land in memory twice."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_rows(path=CSV_PATH, verify=True):
+    """Load the harvest CSV, refusing to proceed on an unexpected file.
+
+    PROTOCOL.md section 2 records the SHA-256 so the counts stay checkable.
+    Running against a different file silently invalidates everything
+    downstream, so this fails loudly instead. `verify=False` is for fixtures.
+    """
+    if verify:
+        got = csv_sha256(path)
+        if got != CSV_SHA256:
+            raise ValueError(
+                f"SHA-256 mismatch for {path}: got {got}, "
+                f"protocol records {CSV_SHA256}")
+    with open(path, newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
+
+
+def in_set(rows):
+    """Papers whose author-chosen primary category is one of the 7 labels."""
+    allowed = set(LABELS)
+    return [r for r in rows if r["primary_category"] in allowed]
+
+
+def integrity_report(rows):
+    """PROTOCOL.md section 2 integrity line, recomputed rather than trusted."""
+    ids = [r["id"] for r in rows]
+    words = sorted(len(r["abstract"].split()) for r in rows)
+    return {
+        "n": len(rows),
+        "duplicate_ids": len(ids) - len(set(ids)),
+        "short_abstracts": sum(1 for r in rows if len(r["abstract"]) < 100),
+        "median_words": statistics.median(words),
+        "p95_words": words[int(0.95 * len(words))],
+    }
