@@ -128,8 +128,16 @@ def test_letter_labels_absent_from_topk_get_zero_before_the_floor():
 
 
 def test_letter_outside_a_to_g_is_a_failure():
+    # Fix round 1: the emitted-text fallback that used to classify this case
+    # as "bad_letter" was removed (it fabricated confidence off raw text --
+    # see test_letter_with_no_valid_letter_in_topk_is_a_counted_failure).
+    # With no valid A-G token anywhere in top-k, there is no distribution to
+    # read at all, so this now falls under "no_logprobs" like any other
+    # unreadable top-k. "bad_letter" stays in FAILURE_KINDS defensively but is
+    # no longer produced by _parse_letter.
     vec, status = parse.parse_record(_letter([("Z", -0.1)]), ITEM)
-    assert status == "bad_letter"
+    assert status == "no_logprobs"
+    assert status in parse.FAILURE_KINDS
     assert vec == pytest.approx(UNIFORM)
 
 
@@ -137,6 +145,94 @@ def test_letter_ignores_case_and_surrounding_whitespace():
     vec, status = parse.parse_record(_letter([(" c ", -0.1), ("A", -2.0)]), ITEM)
     assert status == "ok"
     assert int(vec.argmax()) == P.LABELS.index("cs.LG")
+
+
+def test_letter_with_no_valid_letter_in_topk_is_a_counted_failure():
+    """Section 4 ties Q-L to the first token's logprobs. If top-k holds no
+    valid letter there is no distribution to read, so this is a failure scored
+    uniform -- NOT an excuse to read a probability off the emitted text, which
+    would fabricate confidence the model never expressed.
+    """
+    rec = {"id": "x", "arm": "Q-L", "status": "ok",
+           "response": {"choices": [{
+               "finish_reason": "stop",
+               "message": {"content": "C"},          # a valid letter in the TEXT
+               "logprobs": {"content": [{"top_logprobs": [
+                   {"token": " the", "logprob": -0.1},
+                   {"token": "\n", "logprob": -2.0}]}]}}]}}   # but none in top-k
+    vec, status = parse.parse_record(rec, ITEM)
+    assert status == "no_logprobs"
+    assert vec == pytest.approx(UNIFORM), \
+        "must be uniform, not a fabricated one-hot on the emitted letter"
+    assert status in parse.FAILURE_KINDS
+
+
+def test_no_parse_path_ever_returns_a_one_hot_from_emitted_text():
+    """Guard the general property: nothing may invent a maximally confident
+    vector from text when logprobs are unreadable.
+    """
+    for emitted in ("A", "G", "d"):
+        rec = {"id": "x", "arm": "Q-L", "status": "ok",
+               "response": {"choices": [{
+                   "finish_reason": "stop",
+                   "message": {"content": emitted},
+                   "logprobs": {"content": [{"top_logprobs": [
+                       {"token": "zzz", "logprob": -0.1}]}]}}]}}
+        vec, status = parse.parse_record(rec, ITEM)
+        assert status in parse.FAILURE_KINDS
+        assert vec.max() < 0.5, f"emitted {emitted!r} produced a confident vector"
+
+
+def test_duplicated_identical_logprob_entry_does_not_double_count():
+    single = [("C", -0.1), ("A", -2.0)]
+    dup = [("C", -0.1), ("C", -0.1), ("A", -2.0)]
+    vec_single, status_single = parse.parse_record(_letter(single), ITEM)
+    vec_dup, status_dup = parse.parse_record(_letter(dup), ITEM)
+    assert status_single == status_dup == "ok"
+    assert vec_single == pytest.approx(vec_dup)
+
+
+def test_empty_content_is_a_counted_failure():
+    for content in ("", "   ", None):
+        rec = {"id": "x", "arm": "Q-V", "status": "ok",
+               "response": {"choices": [{"finish_reason": "stop",
+                                         "message": {"content": content}}]}}
+        vec, status = parse.parse_record(rec, ITEM)
+        assert status in parse.FAILURE_KINDS
+        assert vec == pytest.approx(UNIFORM)
+
+
+def test_record_with_no_choices_at_all_is_a_counted_failure():
+    rec = {"id": "x", "arm": "Q-V", "status": "ok", "response": {}}
+    vec, status = parse.parse_record(rec, ITEM)
+    assert status in parse.FAILURE_KINDS
+    assert vec == pytest.approx(UNIFORM)
+
+
+def test_jev_bad_values_are_counted_failures():
+    """J is the subject arm; a malformed probability from it must not slip
+    through as data.
+    """
+    base = {"cs.CV": 0.5, "cs.LG": 0.5, "cs.AI": 0, "cs.RO": 0,
+            "cs.CL": 0, "cs.CR": 0, "cs.IR": 0}
+    for bad_label, bad_value in (("cs.AI", -0.2), ("cs.AI", float("inf"))):
+        probs = dict(base); probs[bad_label] = bad_value
+        rec = {"id": "x", "arm": "J", "status": "ok",
+               "response": {"answers": {P.JEV_QUESTION_KEY: {
+                   "type": "choice", "choice": "cs.CV",
+                   "probabilities": probs, "confidence": 0.5}}}}
+        vec, status = parse.parse_record(rec, ITEM)
+        assert status in parse.FAILURE_KINDS
+        assert vec == pytest.approx(UNIFORM)
+
+
+def test_jev_missing_or_wrong_keys_is_a_parse_error():
+    for probs in ({"cs.CV": 1.0}, {}, None):
+        rec = {"id": "x", "arm": "J", "status": "ok",
+               "response": {"answers": {P.JEV_QUESTION_KEY: {
+                   "type": "choice", "probabilities": probs}}}}
+        vec, status = parse.parse_record(rec, ITEM)
+        assert status in parse.FAILURE_KINDS
 
 
 def test_every_failure_kind_is_a_known_kind():

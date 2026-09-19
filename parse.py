@@ -27,7 +27,7 @@ import protocol as P
 
 PRED_DIR = "preds"
 FAILURE_KINDS = {"parse_error", "bad_value", "truncated", "refusal",
-                 "bad_letter", "timeout", "empty"}
+                 "bad_letter", "timeout", "empty", "no_logprobs"}
 
 TAG_RE = re.compile(r"</?(thinking|antml|system|internal|reasoning)\b",
                     re.IGNORECASE)
@@ -97,22 +97,27 @@ def _parse_letter(choice, item):
 
     shuffled = np.zeros(P.K, dtype=float)
     hit = False
+    seen_entries = set()
     for entry in top:
         tok = (entry.get("token") or "").strip().upper()
         if len(tok) != 1 or tok not in prompt.LETTERS:
             continue
+        marker = (tok, entry.get("logprob"))
+        if marker in seen_entries:      # exact repeat: provider artifact
+            continue
+        seen_entries.add(marker)
         pos = prompt.LETTERS.index(tok)
         shuffled[pos] += float(np.exp(entry["logprob"]))
         hit = True
 
     if not hit:
-        # Nothing in top-k was a valid letter. Fall back to the emitted text so
-        # a valid single letter outside top-k is not thrown away.
-        emitted = ((choice.get("message") or {}).get("content") or "").strip().upper()
-        if len(emitted) == 1 and emitted in prompt.LETTERS:
-            shuffled[prompt.LETTERS.index(emitted)] = 1.0
-        else:
-            return None, "bad_letter"
+        # No valid A-G token in the returned top-k, so there is no distribution
+        # to read. Section 4 requires Q-L's probabilities to come from the first
+        # generated token's logprobs; reading a number off the emitted text
+        # instead would fabricate confidence the model never expressed, which in
+        # a calibration study is worse than a recorded failure. Section 5 fixes
+        # the price of an unreadable response at uniform.
+        return None, "no_logprobs"
 
     # shuffled is in option order; map back to canonical label order.
     return pools.to_canonical(shuffled, item["options"]), "ok"
