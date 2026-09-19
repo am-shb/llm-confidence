@@ -1920,7 +1920,11 @@ def test_epsilon_floor_is_applied():
     payload = {l: 0.0 for l in P.LABELS}
     payload["cs.LG"] = 1.0
     vec, _ = parse.parse_record(_verbalized(json.dumps(payload)), ITEM)
-    assert (vec >= P.EPSILON * 0.999).all()
+    # The floor is applied ONCE, so a floored entry lands at eps/(1+m*eps)
+    # where m is the number of floored entries (m <= K-1). A threshold of
+    # eps*0.999 would fail correct code AND pass a double-floor bug, because
+    # double-flooring pushes values back up toward eps.
+    assert (vec >= P.EPSILON / (1 + (P.K - 1) * P.EPSILON) * (1 - 1e-9)).all()
 
 
 def test_malformed_json_is_a_failure_scored_uniform():
