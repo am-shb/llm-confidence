@@ -1,4 +1,3 @@
-import csv as _csv
 import numpy as np
 import pytest
 import protocol as P
@@ -132,3 +131,20 @@ def test_integrity_report_finds_no_duplicates_or_short_abstracts():
     assert rep["duplicate_ids"] == 0
     assert rep["short_abstracts"] == 0
     assert 185 <= rep["median_words"] <= 195
+
+
+def test_integrity_report_actually_counts_problems():
+    """A counter that always returned 0 would look identical to a clean
+    dataset in every report. Pin the nonzero path on a synthetic fixture.
+    """
+    dirty = [
+        {"id": "a", "abstract": "w " * 150, "primary_category": "cs.AI"},
+        {"id": "a", "abstract": "w " * 150, "primary_category": "cs.AI"},   # dup id
+        {"id": "b", "abstract": "too short", "primary_category": "cs.LG"},  # <100 chars
+        {"id": "c", "abstract": "w " * 150, "primary_category": "cs.CV"},
+    ]
+    rep = P.integrity_report(dirty)
+    assert rep["n"] == 4
+    assert rep["duplicate_ids"] == 1
+    assert rep["short_abstracts"] == 1
+    assert rep["median_words"] > 0
