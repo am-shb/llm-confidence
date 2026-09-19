@@ -111,13 +111,18 @@ def _parse_letter(choice, item):
         hit = True
 
     if not hit:
-        # No valid A-G token in the returned top-k, so there is no distribution
-        # to read. Section 4 requires Q-L's probabilities to come from the first
-        # generated token's logprobs; reading a number off the emitted text
-        # instead would fabricate confidence the model never expressed, which in
-        # a calibration study is worse than a recorded failure. Section 5 fixes
-        # the price of an unreadable response at uniform.
-        return None, "no_logprobs"
+        # No usable letter in the returned top-k, so there is no distribution to
+        # read and section 5 scores this uniform either way. Distinguish WHY,
+        # because section 4's pre-freeze checks act on it: a letter outside A-G
+        # means the model is not following the instruction (consider a different
+        # alphabet), whereas no letter-like token at all means the provider is
+        # not returning the sampled token. Classified from the top-k tokens only
+        # -- never from the emitted text, which must never influence a number.
+        saw_other_letter = any(
+            len((e.get("token") or "").strip()) == 1
+            and (e.get("token") or "").strip().isalpha()
+            for e in top)
+        return None, ("bad_letter" if saw_other_letter else "no_logprobs")
 
     # shuffled is in option order; map back to canonical label order.
     return pools.to_canonical(shuffled, item["options"]), "ok"

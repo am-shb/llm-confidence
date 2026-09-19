@@ -128,15 +128,14 @@ def test_letter_labels_absent_from_topk_get_zero_before_the_floor():
 
 
 def test_letter_outside_a_to_g_is_a_failure():
-    # Fix round 1: the emitted-text fallback that used to classify this case
-    # as "bad_letter" was removed (it fabricated confidence off raw text --
-    # see test_letter_with_no_valid_letter_in_topk_is_a_counted_failure).
-    # With no valid A-G token anywhere in top-k, there is no distribution to
-    # read at all, so this now falls under "no_logprobs" like any other
-    # unreadable top-k. "bad_letter" stays in FAILURE_KINDS defensively but is
-    # no longer produced by _parse_letter.
+    # Fix round 2: classification is read from the top-k TOKEN LIST, never
+    # from message.content. Top-k here contains a letter-like token ("Z")
+    # that is not in A-G, which section 4's pre-freeze checks treat as a
+    # model/prompt problem -- distinct from no letter-like token appearing at
+    # all (a provider problem, see test_letter_with_no_valid_letter_in_topk_
+    # is_a_counted_failure). Both score uniform; only the diagnosis differs.
     vec, status = parse.parse_record(_letter([("Z", -0.1)]), ITEM)
-    assert status == "no_logprobs"
+    assert status == "bad_letter"
     assert status in parse.FAILURE_KINDS
     assert vec == pytest.approx(UNIFORM)
 
@@ -149,7 +148,9 @@ def test_letter_ignores_case_and_surrounding_whitespace():
 
 def test_letter_with_no_valid_letter_in_topk_is_a_counted_failure():
     """Section 4 ties Q-L to the first token's logprobs. If top-k holds no
-    valid letter there is no distribution to read, so this is a failure scored
+    letter-like token at all -- not even one outside A-G -- there is no
+    distribution to read and no letter-following signal either; that is a
+    provider problem (Parasail not returning the sampled token), scored
     uniform -- NOT an excuse to read a probability off the emitted text, which
     would fabricate confidence the model never expressed.
     """
@@ -159,7 +160,8 @@ def test_letter_with_no_valid_letter_in_topk_is_a_counted_failure():
                "message": {"content": "C"},          # a valid letter in the TEXT
                "logprobs": {"content": [{"top_logprobs": [
                    {"token": " the", "logprob": -0.1},
-                   {"token": "\n", "logprob": -2.0}]}]}}]}}   # but none in top-k
+                   {"token": "\n", "logprob": -2.0},
+                   {"token": "123", "logprob": -3.0}]}]}}]}}  # no letter-like token
     vec, status = parse.parse_record(rec, ITEM)
     assert status == "no_logprobs"
     assert vec == pytest.approx(UNIFORM), \
@@ -181,6 +183,46 @@ def test_no_parse_path_ever_returns_a_one_hot_from_emitted_text():
         vec, status = parse.parse_record(rec, ITEM)
         assert status in parse.FAILURE_KINDS
         assert vec.max() < 0.5, f"emitted {emitted!r} produced a confident vector"
+
+
+def test_unreadable_topk_distinguishes_wrong_letter_from_no_letter():
+    """Both score uniform per section 5, but section 4's pre-freeze checks act
+    on WHICH failure it was: a wrong letter means fix the alphabet, no letter at
+    all means investigate the provider.
+    """
+    def ql(topk):
+        return {"id": "x", "arm": "Q-L", "status": "ok",
+                "response": {"choices": [{
+                    "finish_reason": "stop", "message": {"content": "?"},
+                    "logprobs": {"content": [{"top_logprobs": [
+                        {"token": t, "logprob": lp} for t, lp in topk]}]}}]}}
+
+    vec_wrong, st_wrong = parse.parse_record(ql([("Z", -0.1), ("Y", -2.0)]), ITEM)
+    vec_none, st_none = parse.parse_record(ql([(" the", -0.1), ("\n", -2.0)]), ITEM)
+
+    assert st_wrong == "bad_letter"
+    assert st_none == "no_logprobs"
+    assert st_wrong in parse.FAILURE_KINDS and st_none in parse.FAILURE_KINDS
+    # Scoring must be identical -- only the diagnosis differs.
+    assert vec_wrong == pytest.approx(UNIFORM)
+    assert vec_none == pytest.approx(UNIFORM)
+
+
+def test_failure_classification_never_reads_the_emitted_text():
+    """The emitted text must not influence status or vector. Same unreadable
+    top-k, three different emitted strings -> identical outcome.
+    """
+    results = set()
+    for emitted in ("C", "Z", "not a letter at all"):
+        rec = {"id": "x", "arm": "Q-L", "status": "ok",
+               "response": {"choices": [{
+                   "finish_reason": "stop", "message": {"content": emitted},
+                   "logprobs": {"content": [{"top_logprobs": [
+                       {"token": " the", "logprob": -0.1}]}]}}]}}
+        vec, status = parse.parse_record(rec, ITEM)
+        results.add(status)
+        assert vec == pytest.approx(UNIFORM)
+    assert len(results) == 1, f"emitted text changed the outcome: {results}"
 
 
 def test_duplicated_identical_logprob_entry_does_not_double_count():
