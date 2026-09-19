@@ -2287,39 +2287,35 @@ git commit -m "Add section 5 probability handling with the full failure taxonomy
 ### Task 10: Dev runs for all five LLM arms
 
 **Files:**
-- Modify: `parse.py` (`_parse_decisions` filled in from Task 7)
 - Create (output, committed): `runs/*_dev.jsonl`, `preds/*_dev*`
+
+`_parse_decisions` was already implemented and tested in Task 9, against the real
+recorded responses in `probes/jev_probe.json`. Verify it rather than rewriting it.
 
 **Interfaces:**
 - Consumes: Tasks 4-9.
 - Produces: real dev responses for all five LLM arms and a parse report per arm, which Task 11 reads.
 
-- [ ] **Step 1: Implement `_parse_decisions` from the Task 7 findings**
+- [ ] **Step 1: Verify the J parser against the recorded probe, then confirm the suite is green**
 
-Replace the `NotImplementedError` body with the real extraction, reading the response path recorded in `probe_jev.py`'s FINDINGS block. Return `(vec, "ok")` on success and `(None, "parse_error")` when the expected field is absent.
+`_parse_decisions` already exists and reads `resp["answers"][JEV_QUESTION_KEY]["probabilities"]`. Confirm it still parses a real recorded Jev response and that the full suite passes before spending anything:
 
-- [ ] **Step 2: Write the test for it against a recorded real response**
-
-Add to `tests/test_parse.py`, using an actual response body copied from `probes/jev_probe.json` so the test is pinned to observed behaviour rather than an assumption:
-
-```python
-def test_decisions_arm_parses_a_real_recorded_response():
-    import json as _j
-    probes = _j.load(open("probes/jev_probe.json"))
-    ok = [p for p in probes if p["status"] == 200]
-    assert ok, "no successful Jev probe recorded; rerun probe_jev.py"
-    rec = {"id": ok[0]["item"], "arm": "J", "status": "ok",
-           "response": ok[0]["response"]}
-    item = next(i for i in __import__("pools").load_pool("dev")
-                if i["id"] == ok[0]["item"])
-    vec, status = parse.parse_record(rec, item)
-    assert status == "ok"
-    assert vec.sum() == pytest.approx(1.0)
-    assert len(vec) == P.K
+```bash
+.venv/bin/pytest tests/ -q
+.venv/bin/python -c "
+import json, parse, pools
+p = [r for r in json.load(open('probes/jev_probe.json')) if r.get('status') == 200][0]
+item = next(i for i in pools.load_pool('dev') if i['id'] == p['item'])
+vec, st = parse.parse_record({'id': item['id'], 'arm': 'J', 'status': 'ok',
+                              'response': p['response']}, item)
+print('status', st, '| sums to', round(float(vec.sum()), 10))
+"
 ```
+Expected: suite green, `status ok`, sums to 1.0. If either fails, STOP — do not spend money against a broken parser.
 
-Run: `.venv/bin/pytest tests/test_parse.py -v -k decisions`
-Expected: PASS.
+- [ ] **Step 2: Record the pre-spend cost expectation**
+
+Before running anything, note the expected bill so a surprise is visible immediately. At the pinned prices (F1-V $2/M in, $10/M out; F2-V $1/M in, $6/M out; Qwen $0.24/M in, $2.20/M out; J $0.042/M in, free out) and ~1,050 prompt tokens per item, 200 items per arm comes to roughly: J $0.01, Q-L $0.05, Q-V $0.11, F2-V ~$1.35, F1-V ~$3.12 — about $4.64 total, with the two frontier figures dominated by reasoning tokens that are a GUESS until measured. If an arm's actual spend exceeds twice its estimate, stop and report rather than continuing.
 
 - [ ] **Step 3: Run the cheap arms first**
 
