@@ -182,7 +182,8 @@ def redact(obj):
         "OPENROUTER_API_KEY", "")
     if isinstance(obj, dict):
         return {k: ("<redacted>" if k.lower() in
-                    ("authorization", "api_key", "openrouter_api_key")
+                    ("authorization", "api_key", "openrouter_api_key",
+                     "user_id")
                     else redact(v)) for k, v in obj.items()}
     if isinstance(obj, list):
         return [redact(v) for v in obj]

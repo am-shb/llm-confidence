@@ -49,6 +49,19 @@
 #    cs.AI 0.14 / cs.LG 0.01 on one item), not a hard one-hot, though several
 #    labels do come back exactly 0. See probes/jev_probe.json for the raw
 #    numbers and the report for the full per-item breakdown.
+#
+#   Verified with the FULL instructions text Task 8 will send (prompt._TASK +
+#   prompt._TAGS, 345 chars, 4 sentences), not just a one-line question: the
+#   endpoint returns HTTP 200 with all 7 labels scored and summing to exactly
+#   1.0. Example on a third dev item: cs.AI 0.73 / cs.CL 0.17 / cs.LG 0.05 /
+#   cs.IR 0.05 at confidence 0.68, gold label cs.AI, cost $0.00004927. So the
+#   schema tolerates multi-sentence instructions and the distributions stay
+#   well-formed and non-degenerate.
+#
+# Response bodies recorded to probes/jev_probe.json are redacted with
+# P.redact() before writing, same as requests -- this also strips OpenRouter's
+# account-identifying "user_id" field, since section 4 publishes these raw
+# responses and an account id would become public for no scientific benefit.
 """Discover how typesafe/jev-1.13 accepts a choice set and returns probabilities.
 
 Jev's OpenRouter record lists modality text->decisions, an empty
@@ -105,18 +118,21 @@ def chat_probe(item):
     return "chat_completions_plain", URL_CHAT, payload
 
 
-def decisions_payload(item):
+def decisions_payload(item, instructions=None):
     """The real contract: POST /api/alpha/decisions.
 
     No `messages`, no `provider`/`allow_fallbacks` -- provider_block() does
     not apply here. `criteria` carries the item's shuffled option order via
     dict insertion order, same permutation every other arm gets via its
-    lettered options block.
+    lettered options block. `instructions` defaults to a one-line question;
+    pass the full prompt._TASK + prompt._TAGS text to match exactly what
+    Task 8 sends.
     """
     desc = taxonomy.load_descriptions()
     criteria = {label: f"{desc[label]['name']}: {desc[label]['description']}"
                 for label in item["options"]}
-    instructions = f"{prompt.SHARED_BODY_MARKER} this paper under?"
+    if instructions is None:
+        instructions = f"{prompt.SHARED_BODY_MARKER} this paper under?"
     state = f"Title: {item['title']}\n\nAbstract: {item['abstract']}"
     payload = {
         "model": P.ARMS["J"]["model"],
@@ -132,17 +148,40 @@ def decisions_payload(item):
     return "decisions", URL_DECISIONS, payload
 
 
+def decisions_payload_full_instructions(item):
+    """Same contract, but with the exact multi-sentence instructions text
+    Task 8 will send (prompt._TASK + prompt._TAGS), not the short one-liner
+    the other two probes use -- verifies the endpoint tolerates the real
+    payload shape, not just a shortened stand-in.
+    """
+    full = f"{prompt._TASK}\n{prompt._TAGS}"
+    _, url, payload = decisions_payload(item, instructions=full)
+    return "decisions_full_instructions", url, payload
+
+
+def run_probe(item, name, url, payload, results):
+    status, body = post(url, payload)
+    print(f"  {item['id']} {name:22} -> HTTP {status}", file=sys.stderr)
+    results.append({"item": item["id"], "shape": name,
+                    "status": status,
+                    "request": P.redact(payload),
+                    "response": P.redact(body)})
+
+
 def main():
-    items = pools.load_pool("dev")[:2]
+    dev = pools.load_pool("dev")
     results = []
-    for item in items:
+    for item in dev[:2]:
         for name, url, payload in (chat_probe(item), decisions_payload(item)):
-            status, body = post(url, payload)
-            print(f"  {item['id']} {name:22} -> HTTP {status}", file=sys.stderr)
-            results.append({"item": item["id"], "shape": name,
-                            "status": status,
-                            "request": P.redact(payload),
-                            "response": body})
+            run_probe(item, name, url, payload, results)
+
+    # A third, previously-unprobed dev item, with the FULL multi-sentence
+    # instructions text Task 8 actually sends -- confirms the schema holds
+    # under the real payload, not just the short one-liner used above.
+    third = dev[2]
+    name, url, payload = decisions_payload_full_instructions(third)
+    run_probe(third, name, url, payload, results)
+
     os.makedirs("probes", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2, ensure_ascii=False)

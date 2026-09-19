@@ -169,3 +169,12 @@ def test_redact_removes_the_key_from_anything_serialized():
     key = P.api_key()
     payload = {"headers": {"Authorization": f"Bearer {key}"}, "model": "x"}
     assert key not in str(P.redact(payload))
+
+
+def test_redact_strips_the_account_identifier():
+    """Section 4 publishes the raw responses, so an account id in them would
+    become public for no scientific benefit.
+    """
+    out = P.redact({"user_id": "user_abc123", "answers": {"x": 1}})
+    assert out["user_id"] == "<redacted>"
+    assert out["answers"] == {"x": 1}

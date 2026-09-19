@@ -56,15 +56,15 @@
           "type": "choice",
           "choice": "cs.CL",
           "probabilities": {
-            "cs.CL": 0.83,
-            "cs.CV": 0,
-            "cs.AI": 0.15,
-            "cs.IR": 0,
+            "cs.AI": 0.11,
             "cs.CR": 0,
-            "cs.LG": 0.02,
+            "cs.IR": 0,
+            "cs.CV": 0,
+            "cs.CL": 0.88,
+            "cs.LG": 0.01,
             "cs.RO": 0
           },
-          "confidence": 0.8
+          "confidence": 0.85
         }
       },
       "usage": {
@@ -72,7 +72,7 @@
         "output_tokens": 78,
         "cost": 4.4436e-05
       },
-      "id": "gen-dec-1789845969-PtfER6tk7Z2Ys5OYHnez",
+      "id": "gen-dec-1789846756-laQ8qetqGU7gtJPOl2vg",
       "provider": "TypeSafe"
     }
   },
@@ -133,15 +133,15 @@
           "type": "choice",
           "choice": "cs.CL",
           "probabilities": {
-            "cs.CL": 0.86,
-            "cs.LG": 0.13,
+            "cs.AI": 0.01,
+            "cs.LG": 0.15,
             "cs.CR": 0,
-            "cs.RO": 0,
             "cs.IR": 0,
-            "cs.CV": 0,
-            "cs.AI": 0.01
+            "cs.CL": 0.84,
+            "cs.RO": 0,
+            "cs.CV": 0
           },
-          "confidence": 0.84
+          "confidence": 0.81
         }
       },
       "usage": {
@@ -149,7 +149,57 @@
         "output_tokens": 78,
         "cost": 4.116e-05
       },
-      "id": "gen-dec-1789845969-myFAvNY0UfUDOJzuR3r4",
+      "id": "gen-dec-1789846756-VtKz0UpoSSNi3CsEi786",
+      "provider": "TypeSafe"
+    }
+  },
+  {
+    "item": "2608.19701",
+    "shape": "decisions_full_instructions",
+    "status": 200,
+    "request": {
+      "model": "typesafe/jev-1.13",
+      "state": "Title: Beyond Memory Majority: Latent-Source Reasoning for Multi-Agent Memory Arbitration\n\nAbstract: Long-term multi-agent systems continuously accumulate the memories produced by different agents. Existing memory methods typically treat retrieved memories as independent evidence and combine them through voting or weighting. However, this independence assumption often fails in multi-agent settings: memories written by different agents may inherit the same upstream source or shared bias, causing correlated evidence to be repeatedly counted and creating a false majority. We term this failure mode \\textit{Memory Correlation Bias}. To address the issue, we propose the \\textbf{C}orrelation-\\textbf{A}ware \\textbf{M}emory \\textbf{A}rbitration (CAMA) framework that jointly decouples retrieved memories and recovers missing independent evidence. We model the retrieved memories as query-conditioned evidence groups and combine neural dependency inference with provenance-based symbolic priors to estimate the effective number of independent evidence sources, thereby preventing correlated memories from forming a false majority. Since critical independent evidence may be absent from the initial retrieval set, \\textsc{CAMA} further learns a sequential recovery policy that actively retrieves alternative evidence or traces upstream sources before making the final decision, aiming to recover sufficient independent evidence for reliable arbitration while minimizing retrieval cost. Experiments on multiple benchmarks demonstrate the superiority of our method over the state-of-the-art baseline methods, suppressing false majorities induced by correlated memories.",
+      "questions": {
+        "primary_category": {
+          "type": "choice",
+          "instructions": "You are given the title and abstract of an arXiv paper.\n\nWhich arXiv primary category did the authors submit this paper under?\n\nThe primary category is the single category the submitting authors chose first. Papers are often cross-listed, but exactly one category is the primary one.\n\nDo not include internal or system XML tags in your response.",
+          "criteria": {
+            "cs.AI": "Artificial Intelligence: Covers all areas of AI except Vision, Robotics, Machine Learning, Multiagent Systems, and Computation and Language (Natural Language Processing), which have separate subject areas. In particular, includes Expert Systems, Theorem Proving (although this may overlap with Logic in Computer Science), Knowledge Representation, Planning, and Uncertainty in AI. Roughly includes material in ACM Subject Classes I.2.0, I.2.1, I.2.3, I.2.4, I.2.8, and I.2.11.",
+            "cs.RO": "Robotics: Roughly includes material in ACM Subject Class I.2.9.",
+            "cs.CV": "Computer Vision and Pattern Recognition: Covers image processing, computer vision, pattern recognition, and scene understanding. Roughly includes material in ACM Subject Classes I.2.10, I.4, and I.5.",
+            "cs.LG": "Machine Learning: Papers on all aspects of machine learning research (supervised, unsupervised, reinforcement learning, bandit problems, and so on) including also robustness, explanation, fairness, and methodology. cs.LG is also an appropriate primary category for applications of machine learning methods.",
+            "cs.CL": "Computation and Language: Covers natural language processing. Roughly includes material in ACM Subject Class I.2.7. Note that work on artificial languages (programming languages, logics, formal systems) that does not explicitly address natural-language issues broadly construed (natural-language processing, computational linguistics, speech, text retrieval, etc.) is not appropriate for this area.",
+            "cs.CR": "Cryptography and Security: Covers all areas of cryptography and security including authentication, public key cryptosytems, proof-carrying code, etc. Roughly includes material in ACM Subject Classes D.4.6 and E.3.",
+            "cs.IR": "Information Retrieval: Covers indexing, dictionaries, retrieval, content and analysis. Roughly includes material in ACM Subject Classes H.3.0, H.3.1, H.3.2, H.3.3, and H.3.4."
+          }
+        }
+      }
+    },
+    "response": {
+      "model": "typesafe/jev-1.13-20260917",
+      "answers": {
+        "primary_category": {
+          "type": "choice",
+          "choice": "cs.AI",
+          "probabilities": {
+            "cs.CR": 0,
+            "cs.RO": 0,
+            "cs.LG": 0.03,
+            "cs.CV": 0,
+            "cs.CL": 0.16,
+            "cs.IR": 0.03,
+            "cs.AI": 0.78
+          },
+          "confidence": 0.75
+        }
+      },
+      "usage": {
+        "input_tokens": 1173,
+        "output_tokens": 79,
+        "cost": 4.9266e-05
+      },
+      "id": "gen-dec-1789846756-GkupgJbxUPZGIKqZbIEo",
       "provider": "TypeSafe"
     }
   }
