@@ -148,3 +148,24 @@ def test_integrity_report_actually_counts_problems():
     assert rep["duplicate_ids"] == 1
     assert rep["short_abstracts"] == 1
     assert rep["median_words"] > 0
+
+
+def test_read_env_parses_the_dotenv(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("# comment\nFOO=bar\nEMPTY=\nQUOTED=\"baz\"\n")
+    env = P.read_env(str(f))
+    assert env["FOO"] == "bar"
+    assert env["EMPTY"] == ""
+    assert env["QUOTED"] == "baz"
+
+
+def test_api_key_is_present_and_looks_like_an_openrouter_key():
+    key = P.api_key()
+    assert key.startswith("sk-or-")
+    assert len(key) > 40
+
+
+def test_redact_removes_the_key_from_anything_serialized():
+    key = P.api_key()
+    payload = {"headers": {"Authorization": f"Bearer {key}"}, "model": "x"}
+    assert key not in str(P.redact(payload))

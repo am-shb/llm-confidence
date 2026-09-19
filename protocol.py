@@ -10,6 +10,7 @@ Nothing here is Jev-specific; Jev is arm J of eight.
 
 import csv
 import hashlib
+import os
 import statistics
 
 import numpy as np
@@ -139,6 +140,55 @@ def load_rows(path=CSV_PATH, verify=True):
                 f"protocol records {CSV_SHA256}")
     with open(path, newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+ENV_PATH = ".env"
+
+
+def read_env(path=ENV_PATH):
+    """Minimal .env reader. No dependency needed for five keys."""
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def api_key():
+    """The OpenRouter key, from the environment or .env.
+
+    Never accepted as a command-line argument: run.py records request
+    parameters per response and section 4 publishes those logs, so a key on
+    the command line could reach shell history and the published JSONL.
+    """
+    key = os.environ.get("OPENROUTER_API_KEY") or read_env().get(
+        "OPENROUTER_API_KEY", "")
+    if not key:
+        raise SystemExit(
+            "STOP: no OPENROUTER_API_KEY. Copy .env.example to .env and fill "
+            "it in.")
+    return key
+
+
+def redact(obj):
+    """Recursively blank anything that could carry the credential."""
+    key = os.environ.get("OPENROUTER_API_KEY") or read_env().get(
+        "OPENROUTER_API_KEY", "")
+    if isinstance(obj, dict):
+        return {k: ("<redacted>" if k.lower() in
+                    ("authorization", "api_key", "openrouter_api_key")
+                    else redact(v)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact(v) for v in obj]
+    if isinstance(obj, str) and key and key in obj:
+        return obj.replace(key, "<redacted>")
+    return obj
 
 
 def in_set(rows):
