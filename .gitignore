@@ -13,3 +13,6 @@ __pycache__/
 # Scratch
 *.bak
 *.long
+
+# SDD scratch workspace (ledger, briefs, review packages)
+.superpowers/
