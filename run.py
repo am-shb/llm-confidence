@@ -6,7 +6,9 @@ skipped, so an interrupted run resumes instead of re-billing -- the full study
 is roughly 14,000 calls and section 4 puts all arms inside one 48-hour window.
 
 Retry and backoff follow harvest_arxiv.py: rate limits are backed off, not
-retried hard. After 3 attempts the item is written with status "failure", which
+retried hard. After MAX_ATTEMPTS (3), or RATE_LIMIT_MAX_ATTEMPTS (6) for a
+rate limit -- including a 400 that self-describes as one, see
+is_transient_http_400 -- the item is written with status "failure", which
 parse.py scores as uniform per section 5.
 
 Usage:
@@ -40,8 +42,61 @@ DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 RUN_DIR = "runs"
 MAX_ATTEMPTS = 3
 RATE_LIMIT_CODES = (408, 429, 500, 502, 503, 504)
+# Grammar-compilation caps (see is_transient_http_400) can persist for a
+# while, so a transient failure gets a longer retry budget than a genuine
+# malformed request or a network hiccup.
+RATE_LIMIT_MAX_ATTEMPTS = 6
+
+# Substrings that mark an HTTP 400 body as a rate limit wearing a 400 rather
+# than a malformed request. Matched case-insensitively over the WHOLE body
+# text (see is_transient_http_400) because the useful string is nested
+# inside metadata.raw, not any specific top-level field.
+_TRANSIENT_400_MARKERS = (
+    "rate limit", "rate_limit", "try again later", "overloaded", "capacity",
+)
 
 _write_lock = threading.Lock()
+
+
+def is_transient_http_400(body):
+    """True if a 400's raw body reads as a transient rate limit.
+
+    Section 4's per-item option permutation (see build_payload) makes every
+    item a distinct grammar for the provider to compile, and some providers
+    wrap the resulting rate limit in HTTP 400 dressed as an
+    "invalid_request_error" instead of 429. Retrying that like the other
+    non-retryable 4xx codes would abort a run that should just back off.
+    Anything else -- an actually malformed request -- stays fatal.
+    """
+    return any(marker in body.lower() for marker in _TRANSIENT_400_MARKERS)
+
+
+class Throttle:
+    """Enforces a minimum wall-clock gap between request STARTS, shared by
+    every worker thread in a run (see --min-interval).
+
+    A run can be throttled under a provider's per-minute cap without
+    dropping to a single thread: several worker threads share one instance,
+    and each call to wait() reserves the next allowed start time under a
+    lock before sleeping, so concurrent callers cannot both slip in under
+    the interval.
+    """
+
+    def __init__(self, min_interval):
+        self.min_interval = min_interval
+        self._lock = threading.Lock()
+        self._last_start = 0.0
+
+    def wait(self):
+        if self.min_interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            gap = self._last_start + self.min_interval - now
+            if gap > 0:
+                time.sleep(gap)
+                now = time.monotonic()
+            self._last_start = now
 
 
 class FatalRunError(RuntimeError):
@@ -176,16 +231,26 @@ def _post(payload, url=CHAT_URL):
         return resp.status, json.loads(resp.read().decode("utf-8"))
 
 
-def call(arm, item):
-    """One item, up to MAX_ATTEMPTS. Returns the record to append."""
+def call(arm, item, throttle=None):
+    """One item, retried per the rate-limit-aware budget. Returns the record
+    to append.
+
+    `throttle`, when given, is a shared Throttle whose wait() is called
+    before every attempt (including the first), so --min-interval spaces
+    request starts across all worker threads, not just within one item's
+    retries.
+    """
     is_jev = P.ARMS[arm]["mechanism"] == "decisions"
     payload = build_jev_payload(item) if is_jev else build_payload(arm, item)
     url = DECISIONS_URL if is_jev else CHAT_URL
     started = time.time()
     last_error = None
     last_http_status = None
+    attempt = 0
 
-    for attempt in range(MAX_ATTEMPTS):
+    while True:
+        if throttle is not None:
+            throttle.wait()
         try:
             status, body = _post(payload, url)
             return {
@@ -199,24 +264,34 @@ def call(arm, item):
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", "replace")
             redacted = P.redact_error_body(raw)
-            # 401/402/403 and any other non-408/429 4xx are not transient:
-            # the account or the request is broken, not the network. Retrying
-            # wastes time and, worse, section 5 would otherwise score it
-            # uniform as if the model had answered. Fatal, not a record.
-            if 400 <= exc.code < 500 and exc.code not in (408, 429):
+            # A 400 dressed up as a rate limit (see is_transient_http_400)
+            # is transient and joins the retry path below instead of the
+            # fatal one. 401/402/403 and any other non-408/429 4xx that
+            # isn't one of those are not transient: the account or the
+            # request is broken, not the network. Retrying wastes time and,
+            # worse, section 5 would otherwise score it uniform as if the
+            # model had answered. Fatal, not a record.
+            is_transient_400 = exc.code == 400 and is_transient_http_400(raw)
+            if (400 <= exc.code < 500 and exc.code not in (408, 429)
+                    and not is_transient_400):
                 raise FatalRunError(exc.code, redacted)
             last_error = f"HTTP {exc.code}: {redacted[:500]}"
             last_http_status = exc.code
-            if exc.code in RATE_LIMIT_CODES and attempt < MAX_ATTEMPTS - 1:
-                time.sleep(min(20 * 2 ** attempt, 300))
-            elif attempt == MAX_ATTEMPTS - 1:
+            is_rate_limited = exc.code in RATE_LIMIT_CODES or is_transient_400
+            budget = RATE_LIMIT_MAX_ATTEMPTS if is_rate_limited else MAX_ATTEMPTS
+            attempt += 1
+            if attempt >= budget:
                 break
+            if is_rate_limited:
+                time.sleep(min(20 * 2 ** (attempt - 1), 300))
             else:
                 time.sleep(5)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
-            if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(10)
+            attempt += 1
+            if attempt >= MAX_ATTEMPTS:
+                break
+            time.sleep(10)
         except Exception as exc:  # noqa: BLE001 - see below
             # Deliberately broad. Section 5 requires every item to produce a
             # record; an unhandled exception here would bypass the write lock
@@ -226,16 +301,19 @@ def call(arm, item):
             # raised from inside the HTTPError branch above, a sibling of this
             # clause, so it propagates straight out and is never caught here.
             last_error = f"{type(exc).__name__}: {exc}"
-            if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(10)
+            attempt += 1
+            if attempt >= MAX_ATTEMPTS:
+                break
+            time.sleep(10)
 
-    # Section 5: a timeout after 3 retries is a failure, never a dropped item.
+    # Section 5: exhausting retries is a failure, never a dropped item.
     # http_status is null for genuine timeouts/network exhaustion and set for
-    # retry-exhausted HTTP failures (429/5xx) -- parse.py uses it to tell them
-    # apart ("timeout" vs "run_error").
+    # retry-exhausted HTTP failures (429/5xx/transient-400) -- parse.py uses
+    # it to tell them apart ("timeout" vs "run_error"). attempts reports the
+    # real count made, which varies with the rate-limit budget.
     return {
         "id": item["id"], "arm": arm, "status": "failure",
-        "error": last_error, "attempts": MAX_ATTEMPTS,
+        "error": last_error, "attempts": attempt,
         "request": P.redact(payload), "response": None,
         "provider": None, "http_status": last_http_status,
         "latency_s": round(time.time() - started, 3),
@@ -321,6 +399,11 @@ def main():
     ap.add_argument("--sequential", action="store_true",
                     help="one at a time, for the latency subsample")
     ap.add_argument("--concurrency", type=int, default=4)
+    ap.add_argument("--min-interval", type=float, default=0.0,
+                    help="minimum seconds between request starts, shared "
+                         "across all worker threads -- throttle under a "
+                         "provider's per-minute cap without dropping to "
+                         "--sequential")
     args = ap.parse_args()
 
     if args.pool == "evaluation" and not os.environ.get("JEV_ALLOW_EVAL"):
@@ -347,10 +430,11 @@ def main():
 
     counts = {"ok": 0, "failure": 0}
     fh = open(out_path, "a", encoding="utf-8")
+    throttle = Throttle(args.min_interval)
 
     def handle(item):
         try:
-            rec = call(args.arm, item)
+            rec = call(args.arm, item, throttle=throttle)
         except FatalRunError:
             # Must not be swallowed into a failure record -- see FatalRunError
             # and the abort handling below. Let it propagate.

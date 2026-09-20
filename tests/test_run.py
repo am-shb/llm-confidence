@@ -1,5 +1,7 @@
 import io
 import json
+import threading
+import time
 import urllib.error
 
 import pytest
@@ -269,7 +271,7 @@ def test_call_still_retries_408_and_429_and_records_http_status(monkeypatch, cod
     monkeypatch.setattr(run.time, "sleep", lambda *_: None)
 
     rec = run.call("Q-L", ITEM)
-    assert attempts["n"] == run.MAX_ATTEMPTS
+    assert attempts["n"] == run.RATE_LIMIT_MAX_ATTEMPTS
     assert rec["status"] == "failure"
     assert rec["http_status"] == code
 
@@ -321,7 +323,7 @@ def test_main_aborts_loudly_and_writes_no_record_on_a_fatal_error(
                          lambda pool: [dict(ITEM, id="only-item")])
     monkeypatch.setattr(
         run, "call",
-        lambda arm, item: (_ for _ in ()).throw(
+        lambda arm, item, **kw: (_ for _ in ()).throw(
             run.FatalRunError(402, "insufficient credit")))
     monkeypatch.setattr(
         "sys.argv",
@@ -334,3 +336,78 @@ def test_main_aborts_loudly_and_writes_no_record_on_a_fatal_error(
     assert out_path.exists()
     assert out_path.read_text() == "", \
         "no record may be written for the item that hit the fatal error"
+
+
+def test_a_rate_limit_flavoured_400_is_transient_not_fatal():
+    """A 400 that self-describes as a rate limit and says 'try again later' is
+    transient. Treating it as fatal aborts a run that should just back off.
+    """
+    body = ('{"error": {"message": "Provider returned error", "code": 400, "metadata":'
+            ' {"raw": "{\\"error\\":{\\"message\\":\\"Grammar compilation rate limit'
+            ' exceeded. Organization X exceeded limit: 20 compilations per minute.'
+            ' You can try again later.\\"}}"}}}')
+    assert run.is_transient_http_400(body) is True
+
+
+def test_a_genuinely_malformed_400_stays_fatal():
+    body = '{"error": {"message": "invalid_request_error: unknown field \'frobnicate\'", "code": 400}}'
+    assert run.is_transient_http_400(body) is False
+
+
+def test_transient_400_retries_then_records_a_failure_rather_than_aborting(monkeypatch):
+    """After exhausting the rate-limit retry budget it must produce a recorded
+    failure, not raise -- the run should continue rather than dying.
+    """
+    import urllib.error, io
+    body = '{"error":{"message":"rate limit exceeded, try again later","code":400}}'
+    calls = {"n": 0}
+
+    def always_429ish(payload, url=None):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url or "u", 400, "Bad Request", {},
+                                     io.BytesIO(body.encode()))
+
+    monkeypatch.setattr(run, "_post", always_429ish)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+    rec = run.call("Q-L", ITEM)
+    assert rec["status"] == "failure"
+    assert calls["n"] == run.RATE_LIMIT_MAX_ATTEMPTS
+    assert rec["http_status"] == 400
+
+
+def test_fatal_codes_still_abort(monkeypatch):
+    import urllib.error, io, pytest as _pt
+    def boom(payload, url=None):
+        raise urllib.error.HTTPError(url or "u", 402, "Payment Required", {},
+                                     io.BytesIO(b'{"error":{"message":"out of credits"}}'))
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+    with _pt.raises(run.FatalRunError):
+        run.call("Q-L", ITEM)
+
+
+def test_min_interval_spaces_request_starts():
+    """Throttling must hold across threads, so a provider per-minute cap can be
+    respected without dropping to one worker.
+    """
+    interval = 0.05
+    throttle = run.Throttle(interval)
+    starts = []
+    starts_lock = threading.Lock()
+
+    def worker():
+        throttle.wait()
+        with starts_lock:
+            starts.append(time.monotonic())
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(starts) == 6
+    starts.sort()
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    # A small epsilon absorbs scheduler/timer jitter, not a design slack.
+    assert all(gap >= interval - 0.01 for gap in gaps), gaps
