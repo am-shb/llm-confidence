@@ -93,6 +93,29 @@ def test_ql_requests_logprobs_and_sets_no_sampling_params():
     assert "response_format" not in pay
 
 
+def test_qwen_arms_explicitly_disable_thinking():
+    """Section 4: the Qwen arms stay non-thinking, because reasoning tokens
+    would displace the first generated token whose logprobs Q-L reads.
+    Non-thinking is NOT this endpoint's default, so it must be sent explicitly.
+    """
+    for arm in ("Q-V", "Q-L"):
+        pay = run.build_payload(arm, ITEM)
+        assert pay["reasoning"] == {"enabled": False}, f"{arm} must disable thinking"
+
+
+def test_frontier_arms_still_send_no_reasoning_key():
+    """Section 4 requires F1-V and F2-V to run at provider defaults, with the
+    parameter omitted so each runs as it ships. A reasoning key here would
+    silently change what the study measures.
+    """
+    for arm in ("F1-V", "F2-V"):
+        assert "reasoning" not in run.build_payload(arm, ITEM)
+
+
+def test_jev_payload_has_no_reasoning_key():
+    assert "reasoning" not in run.build_jev_payload(ITEM)
+
+
 def test_ql_and_qv_share_model_and_provider():
     a, b = run.build_payload("Q-V", ITEM), run.build_payload("Q-L", ITEM)
     assert a["model"] == b["model"]

@@ -70,8 +70,11 @@ ARMS = {
         "model": "qwen/qwen3.8-27b",
         "provider": "Parasail",
         "mechanism": "verbalized",
+        # Section 4: "The Qwen arms stay non-thinking ... Q-V is matched to
+        # Q-L." Non-thinking is NOT this endpoint's default -- reasoning must
+        # be disabled explicitly or the model emits chain-of-thought tokens.
         "params": {"structured_outputs": True, "seed": SEEDS["master"],
-                   "temperature": 0.0},
+                   "temperature": 0.0, "reasoning": {"enabled": False}},
     },
     "Q-L": {
         "model": "qwen/qwen3.8-27b",
@@ -79,7 +82,13 @@ ARMS = {
         "mechanism": "letter",
         # No temperature, top-p or top-k (section 4). Logprobs on the first
         # generated token.
-        "params": {"seed": SEEDS["master"], "logprobs": True, "top_logprobs": 20},
+        # Section 4: "Q-L reads the first generated token's logprobs, which
+        # reasoning tokens would displace." Non-thinking is NOT this
+        # endpoint's default, so it must be sent explicitly; {"enabled":
+        # False} is the only one of the tried settings that actually
+        # suppresses reasoning tokens on the live pinned endpoint.
+        "params": {"seed": SEEDS["master"], "logprobs": True, "top_logprobs": 20,
+                   "reasoning": {"enabled": False}},
     },
 }
 

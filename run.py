@@ -48,9 +48,11 @@ def build_payload(arm, item):
     """The exact request body for this arm and item.
 
     Section 4 asymmetries live here and nowhere else: reasoning is omitted for
-    the frontier arms so they run as they ship; Q-L sends no sampling
-    parameters because reasoning or sampling tokens would displace the first
-    generated token whose logprobs it reads; J exposes no parameters at all.
+    the frontier arms (F1-V, F2-V) so they run as they ship; the Qwen arms
+    (Q-V, Q-L) explicitly disable reasoning via params, since non-thinking is
+    not this endpoint's default and reasoning or sampling tokens would
+    displace the first generated token whose logprobs Q-L reads; J exposes no
+    parameters at all.
     """
     spec = P.ARMS[arm]
     mech = spec["mechanism"]
@@ -76,6 +78,12 @@ def build_payload(arm, item):
         payload["temperature"] = params["temperature"]
     if "max_tokens" in params:
         payload["max_tokens"] = params["max_tokens"]
+    if "reasoning" in params:
+        # Section 4: only the Qwen arms send this, to explicitly disable
+        # thinking (see protocol.ARMS). F1-V/F2-V never set "reasoning" in
+        # params, so this branch never fires for them -- they run at
+        # provider defaults with the key omitted entirely.
+        payload["reasoning"] = params["reasoning"]
 
     return payload
 
