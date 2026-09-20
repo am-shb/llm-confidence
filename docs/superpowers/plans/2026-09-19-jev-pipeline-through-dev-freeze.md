@@ -127,10 +127,20 @@ def test_epsilon_and_start_date():
     assert P.START_DATE == "2026-09-05"
 
 
-def test_floor_renorm_sums_to_one_and_respects_epsilon():
-    out = P.floor_renorm(np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
-    assert out.sum() == pytest.approx(1.0)
-    assert (out >= P.EPSILON * 0.999).all()
+@pytest.mark.parametrize("eps", [0.0001, 0.001, 0.01])
+def test_floor_renorm_sums_to_one_and_respects_the_exact_floor(eps):
+    """Flooring adds at most K*eps before renormalizing, so the smallest
+    entry lands at exactly eps/(1 + K*eps) -- just below eps, not above it.
+    Section 7 recomputes the primary metric at all three of these epsilons.
+    """
+    tight_floor = eps / (1 + (P.K - 1) * eps)
+    for raw in ([1.0, 0, 0, 0, 0, 0, 0],
+                [0.5, 0.5, 0, 0, 0, 0, 0],
+                [1e-12, 1, 0, 0, 0, 0, 0]):
+        out = P.floor_renorm(np.array(raw), eps=eps)
+        assert out.sum() == pytest.approx(1.0)
+        assert out.min() >= tight_floor * (1 - 1e-9)
+        assert (out > 0).all(), "log-space operations must be defined everywhere"
 
 
 def test_floor_renorm_handles_all_zero_vector():
@@ -139,9 +149,23 @@ def test_floor_renorm_handles_all_zero_vector():
     assert out == pytest.approx(np.full(7, 1 / 7))
 
 
-def test_floor_renorm_is_idempotent():
+def test_floor_renorm_converges_and_preserves_its_invariants():
+    """Section 5 re-applies the floor after temperature scaling, so what
+    matters is that re-application is well-defined and stable -- not that it
+    is a no-op. Repeated application converges to a fixed point at min == eps.
+    """
     once = P.floor_renorm(np.array([0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0]))
-    assert P.floor_renorm(once) == pytest.approx(once)
+    twice = P.floor_renorm(once)
+
+    assert twice.sum() == pytest.approx(1.0)
+    assert twice.min() >= P.EPSILON / (1 + (P.K - 1) * P.EPSILON) * (1 - 1e-9)
+    assert np.abs(twice - once).max() < 1e-4, "re-application must be stable"
+
+    x = np.array([1.0, 0, 0, 0, 0, 0, 0])
+    for _ in range(8):
+        x = P.floor_renorm(x)
+    assert x.min() == pytest.approx(P.EPSILON, rel=1e-6)
+    assert np.abs(P.floor_renorm(x) - x).max() < 1e-12, "fixed point reached"
 
 
 def test_floor_renorm_preserves_argmax():
@@ -267,9 +291,9 @@ def floor_renorm(vec, eps=EPSILON):
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/pytest tests/test_protocol.py -v`
-Expected: PASS, 8 tests.
+Expected: PASS, 11 tests (the epsilon test is parameterized three ways).
 
-Note `test_floor_renorm_sums_to_one_and_respects_epsilon` uses `eps * 0.999` as its bound: flooring then renormalizing pushes floored entries a hair below `eps`, which is correct behaviour and not a bug to chase.
+Note the floor bound is `eps / (1 + (K-1) * eps)`, not `eps`: a unit-sum vector always has an entry `>= 1/K > eps`, so at most `K-1` entries can be floored, and after renormalization those land just below `eps` (0.00099404 at the default, attained by a one-hot input). That is correct behaviour and not a bug to chase. `floor_renorm` is a contraction, not an involution — repeated application converges to a fixed point where the minimum equals `eps` exactly, so do not assert exact idempotency.
 
 - [ ] **Step 5: Commit**
 
@@ -1033,6 +1057,14 @@ def _body(item):
     )
 
 
+# Arm J's `instructions` field. Derived from the SAME _TASK text the chat arms
+# receive, plus section 4's universal XML-tag line, so section 4's "same prompt
+# content" claim holds across the transport boundary rather than relying on two
+# hand-kept copies agreeing. J emits no free text, so the tag line is inert for
+# it -- it is present because section 4 says the instruction goes to every arm.
+JEV_INSTRUCTIONS = f"{_TASK}\n{_TAGS}"
+
+
 def json_schema(options):
     """Schema requiring all 7 keys, presented in this item's shuffled order.
 
@@ -1220,6 +1252,7 @@ import urllib.request
 import pools
 import prompt
 import protocol as P
+import taxonomy
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
 OUT = "probes/jev_probe.json"
@@ -1242,8 +1275,8 @@ def post(payload):
 def candidates(item):
     """Request shapes to try, cheapest and most likely first."""
     messages = prompt.build_prompt(item, "decisions")
-    base = {"model": "typesafe/jev-1.13",
-            "provider": {"order": ["TypeSafe"], "allow_fallbacks": False}}
+    base = {"model": P.ARMS["J"]["model"],
+            "provider": P.provider_block("J")}
 
     tool = {
         "type": "function",
@@ -1333,6 +1366,7 @@ git commit -m "Probe and record Jev's typed-decision wire format"
 
 **Files:**
 - Create: `run.py`, `tests/test_run.py`
+- Modify: `prompt.py` (add `JEV_INSTRUCTIONS`), `tests/test_prompt.py` (one test for it)
 
 **Interfaces:**
 - Consumes: `ARMS`, `api_key`, `redact` (Tasks 2, 7); `build_prompt`, `json_schema` (Task 6); `load_pool` (Task 4); the Task 7 findings.
@@ -1358,11 +1392,49 @@ ITEM = {
 }
 
 
-def test_every_arm_pins_its_provider_and_forbids_fallbacks():
-    for arm in P.LLM_ARMS:
+CHAT_ARMS = [a for a in P.LLM_ARMS if P.ARMS[a]["mechanism"] != "decisions"]
+
+
+def test_every_chat_arm_pins_its_provider_and_forbids_fallbacks():
+    for arm in CHAT_ARMS:
         pay = run.build_payload(arm, ITEM)
         assert pay["provider"]["allow_fallbacks"] is False
         assert pay["provider"]["order"] == [P.ARMS[arm]["provider"]]
+
+
+def test_jev_payload_uses_the_decisions_schema_not_chat():
+    """Arm J speaks TypeSafe's System One contract: no messages array, no
+    response_format, no provider block. chat/completions returns HTTP 400 for
+    this model, so a chat-shaped payload would fail every item.
+    """
+    pay = run.build_jev_payload(ITEM)
+    assert "messages" not in pay
+    assert "response_format" not in pay
+    assert "provider" not in pay
+    assert pay["model"] == "typesafe/jev-1.13"
+    assert ITEM["title"] in pay["state"]
+    assert ITEM["abstract"] in pay["state"]
+    q = pay["questions"][P.JEV_QUESTION_KEY]
+    assert q["type"] == "choice"
+    assert set(q["criteria"]) == set(P.LABELS)
+
+
+def test_jev_criteria_follow_the_items_shuffled_order():
+    """Section 4 requires the same per-item permutation for every arm including
+    J. Here the shuffle is carried by criteria insertion order, which Python
+    preserves through json.dumps.
+    """
+    pay = run.build_jev_payload(ITEM)
+    assert list(pay["questions"][P.JEV_QUESTION_KEY]["criteria"]) == ITEM["options"]
+
+
+def test_jev_criteria_carry_the_verbatim_descriptions():
+    import taxonomy
+    desc = taxonomy.load_descriptions()
+    crit = run.build_jev_payload(ITEM)["questions"][P.JEV_QUESTION_KEY]["criteria"]
+    for label in P.LABELS:
+        assert desc[label]["description"] in crit[label]
+        assert desc[label]["name"] in crit[label]
 
 
 def test_frontier_arms_send_no_reasoning_parameter():
@@ -1429,8 +1501,9 @@ def test_completed_ids_on_missing_file_is_empty(tmp_path):
 
 def test_payload_never_contains_the_api_key():
     key = P.api_key()
-    for arm in P.LLM_ARMS:
+    for arm in CHAT_ARMS:
         assert key not in json.dumps(run.build_payload(arm, ITEM))
+    assert key not in json.dumps(run.build_jev_payload(ITEM))
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1472,8 +1545,14 @@ from concurrent.futures import ThreadPoolExecutor
 import pools
 import prompt
 import protocol as P
+import taxonomy
 
-URL = "https://openrouter.ai/api/v1/chat/completions"
+CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Arm J speaks TypeSafe's documented "System One" decisions contract
+# (https://docs.typesafe.ai/introduction/quickstart), reached through
+# OpenRouter's passthrough so the exact version pin from section 3 is kept.
+# chat/completions rejects this model outright with HTTP 400.
+DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 RUN_DIR = "runs"
 MAX_ATTEMPTS = 3
 RATE_LIMIT_CODES = (408, 429, 500, 502, 503, 504)
@@ -1493,7 +1572,8 @@ def build_payload(arm, item):
     mech = spec["mechanism"]
     payload = {
         "model": spec["model"],
-        "provider": {"order": [spec["provider"]], "allow_fallbacks": False},
+        # Section 4's pin rule lives in protocol.provider_block, not here.
+        "provider": P.provider_block(arm),
         "messages": prompt.build_prompt(item, mech),
     }
     params = spec["params"]
@@ -1513,10 +1593,35 @@ def build_payload(arm, item):
     if "max_tokens" in params:
         payload["max_tokens"] = params["max_tokens"]
 
-    # J: shape settled by probe_jev.py. Apply its FINDINGS block here.
-    if mech == "decisions":
-        payload.update(P.JEV_REQUEST_EXTRA)
     return payload
+
+
+def build_jev_payload(item):
+    """Arm J's request. A different endpoint AND a different schema.
+
+    Confirmed against TypeSafe's docs and probe_jev.py's FINDINGS: there is no
+    `messages` array, no `response_format`, and no `provider`/`allow_fallbacks`
+    field, so protocol.provider_block() does not apply -- TypeSafe is the only
+    provider and the response echoes `provider` for checking instead.
+
+    Section 4's per-item option permutation is carried by the INSERTION ORDER of
+    the `criteria` mapping, which Python preserves through json.dumps. Section 4
+    content parity is preserved: same question text, same verbatim descriptions.
+    """
+    desc = taxonomy.load_descriptions()
+    criteria = {label: f"{desc[label]['name']}: {desc[label]['description']}"
+                for label in item["options"]}   # shuffled order, per section 4
+    return {
+        "model": P.ARMS["J"]["model"],
+        "state": f"Title: {item['title']}\n\nAbstract: {item['abstract']}",
+        "questions": {
+            P.JEV_QUESTION_KEY: {
+                "type": "choice",
+                "instructions": prompt.JEV_INSTRUCTIONS,
+                "criteria": criteria,
+            }
+        },
+    }
 
 
 def completed_ids(path):
@@ -1536,9 +1641,9 @@ def completed_ids(path):
     return done
 
 
-def _post(payload):
+def _post(payload, url=CHAT_URL):
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(URL, data=body, headers={
+    req = urllib.request.Request(url, data=body, headers={
         "Authorization": f"Bearer {P.api_key()}",
         "Content-Type": "application/json",
         "X-Title": "jev-calibration-study",
@@ -1549,13 +1654,15 @@ def _post(payload):
 
 def call(arm, item):
     """One item, up to MAX_ATTEMPTS. Returns the record to append."""
-    payload = build_payload(arm, item)
+    is_jev = P.ARMS[arm]["mechanism"] == "decisions"
+    payload = build_jev_payload(item) if is_jev else build_payload(arm, item)
+    url = DECISIONS_URL if is_jev else CHAT_URL
     started = time.time()
     last_error = None
 
     for attempt in range(MAX_ATTEMPTS):
         try:
-            status, body = _post(payload)
+            status, body = _post(payload, url)
             return {
                 "id": item["id"], "arm": arm, "status": "ok",
                 "http": status, "attempts": attempt + 1,
@@ -1655,9 +1762,9 @@ if __name__ == "__main__":
 Add to `protocol.py`, filled in from the Task 7 findings (empty dict if the plain shape won):
 
 ```python
-# Extra request fields J needs, determined by probe_jev.py. See its FINDINGS
-# block. Empty if a plain chat-completions call returns scored options.
-JEV_REQUEST_EXTRA = {}
+# Arm J's question key in the decisions payload and in the response's `answers`
+# map. One name, used by both run.py and parse.py, so they cannot disagree.
+JEV_QUESTION_KEY = "primary_category"
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1813,7 +1920,11 @@ def test_epsilon_floor_is_applied():
     payload = {l: 0.0 for l in P.LABELS}
     payload["cs.LG"] = 1.0
     vec, _ = parse.parse_record(_verbalized(json.dumps(payload)), ITEM)
-    assert (vec >= P.EPSILON * 0.999).all()
+    # The floor is applied ONCE, so a floored entry lands at eps/(1+m*eps)
+    # where m is the number of floored entries (m <= K-1). A threshold of
+    # eps*0.999 would fail correct code AND pass a double-floor bug, because
+    # double-flooring pushes values back up toward eps.
+    assert (vec >= P.EPSILON / (1 + (P.K - 1) * P.EPSILON) * (1 - 1e-9)).all()
 
 
 def test_malformed_json_is_a_failure_scored_uniform():
@@ -2052,33 +2163,55 @@ def parse_record(rec, item):
     if rec.get("status") == "failure":
         return _uniform(), "timeout"
     resp = rec.get("response") or {}
+    mech = P.ARMS[rec["arm"]]["mechanism"]
+
+    # J's response has no `choices` list -- it is a decisions-contract body.
+    if mech == "decisions":
+        vec, status = _parse_decisions(resp, item)
+        if status != "ok":
+            return _uniform(), status
+        return P.floor_renorm(vec), "ok"
+
     choices = resp.get("choices") or []
     if not choices:
         return _uniform(), "empty"
     choice = choices[0]
 
-    mech = P.ARMS[rec["arm"]]["mechanism"]
     if mech == "letter":
         vec, status = _parse_letter(choice, item)
-    elif mech == "verbalized":
+    else:
         vec, status = _parse_verbalized(choice, item)
-    else:  # decisions: J. Shape fixed by probe_jev.py FINDINGS.
-        vec, status = _parse_decisions(choice, item)
 
     if status != "ok":
         return _uniform(), status
     return P.floor_renorm(vec), "ok"
 
 
-def _parse_decisions(choice, item):
-    """J's typed choice. Written against probe_jev.py's recorded findings.
+def _parse_decisions(resp, item):
+    """J's typed choice, per TypeSafe's System One response contract.
 
-    Implement only after Task 7 has answered where the per-option
-    probabilities live. If J scores only the chosen option, stop -- that is a
-    protocol-level problem, not a parsing one.
+    resp["answers"][JEV_QUESTION_KEY] carries `choice`, `probabilities` (a dict
+    keyed by label -- all 7 are scored, confirmed by probe_jev.py) and
+    `confidence`. Unlike the chat arms there is no `choices` list, so this takes
+    the whole response body rather than a choice element.
     """
-    raise NotImplementedError(
-        "fill in from probes/jev_probe.json FINDINGS before running arm J")
+    answer = (resp.get("answers") or {}).get(P.JEV_QUESTION_KEY)
+    if not isinstance(answer, dict):
+        return None, "parse_error"
+    probs = answer.get("probabilities")
+    if not isinstance(probs, dict) or set(probs) != set(P.LABELS):
+        return None, "parse_error"
+    vec = np.empty(P.K, dtype=float)
+    for i, label in enumerate(P.LABELS):
+        v = probs[label]
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None, "bad_value"
+        if not np.isfinite(v) or v < 0:
+            return None, "bad_value"
+        vec[i] = float(v)
+    if vec.sum() <= 0:
+        return None, "bad_value"
+    return vec, "ok"
 
 
 def parse_run(arm, pool):
@@ -2154,39 +2287,35 @@ git commit -m "Add section 5 probability handling with the full failure taxonomy
 ### Task 10: Dev runs for all five LLM arms
 
 **Files:**
-- Modify: `parse.py` (`_parse_decisions` filled in from Task 7)
 - Create (output, committed): `runs/*_dev.jsonl`, `preds/*_dev*`
+
+`_parse_decisions` was already implemented and tested in Task 9, against the real
+recorded responses in `probes/jev_probe.json`. Verify it rather than rewriting it.
 
 **Interfaces:**
 - Consumes: Tasks 4-9.
 - Produces: real dev responses for all five LLM arms and a parse report per arm, which Task 11 reads.
 
-- [ ] **Step 1: Implement `_parse_decisions` from the Task 7 findings**
+- [ ] **Step 1: Verify the J parser against the recorded probe, then confirm the suite is green**
 
-Replace the `NotImplementedError` body with the real extraction, reading the response path recorded in `probe_jev.py`'s FINDINGS block. Return `(vec, "ok")` on success and `(None, "parse_error")` when the expected field is absent.
+`_parse_decisions` already exists and reads `resp["answers"][JEV_QUESTION_KEY]["probabilities"]`. Confirm it still parses a real recorded Jev response and that the full suite passes before spending anything:
 
-- [ ] **Step 2: Write the test for it against a recorded real response**
-
-Add to `tests/test_parse.py`, using an actual response body copied from `probes/jev_probe.json` so the test is pinned to observed behaviour rather than an assumption:
-
-```python
-def test_decisions_arm_parses_a_real_recorded_response():
-    import json as _j
-    probes = _j.load(open("probes/jev_probe.json"))
-    ok = [p for p in probes if p["status"] == 200]
-    assert ok, "no successful Jev probe recorded; rerun probe_jev.py"
-    rec = {"id": ok[0]["item"], "arm": "J", "status": "ok",
-           "response": ok[0]["response"]}
-    item = next(i for i in __import__("pools").load_pool("dev")
-                if i["id"] == ok[0]["item"])
-    vec, status = parse.parse_record(rec, item)
-    assert status == "ok"
-    assert vec.sum() == pytest.approx(1.0)
-    assert len(vec) == P.K
+```bash
+.venv/bin/pytest tests/ -q
+.venv/bin/python -c "
+import json, parse, pools
+p = [r for r in json.load(open('probes/jev_probe.json')) if r.get('status') == 200][0]
+item = next(i for i in pools.load_pool('dev') if i['id'] == p['item'])
+vec, st = parse.parse_record({'id': item['id'], 'arm': 'J', 'status': 'ok',
+                              'response': p['response']}, item)
+print('status', st, '| sums to', round(float(vec.sum()), 10))
+"
 ```
+Expected: suite green, `status ok`, sums to 1.0. If either fails, STOP — do not spend money against a broken parser.
 
-Run: `.venv/bin/pytest tests/test_parse.py -v -k decisions`
-Expected: PASS.
+- [ ] **Step 2: Record the pre-spend cost expectation**
+
+Before running anything, note the expected bill so a surprise is visible immediately. At the pinned prices (F1-V $2/M in, $10/M out; F2-V $1/M in, $6/M out; Qwen $0.24/M in, $2.20/M out; J $0.042/M in, free out) and ~1,050 prompt tokens per item, 200 items per arm comes to roughly: J $0.01, Q-L $0.05, Q-V $0.11, F2-V ~$1.35, F1-V ~$3.12 — about $4.64 total, with the two frontier figures dominated by reasoning tokens that are a GUESS until measured. If an arm's actual spend exceeds twice its estimate, stop and report rather than continuing.
 
 - [ ] **Step 3: Run the cheap arms first**
 
