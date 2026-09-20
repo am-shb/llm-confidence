@@ -1,0 +1,22 @@
+{
+  "arm": "P-star",
+  "pool": "dev",
+  "n": 200,
+  "ok": 200,
+  "epsilon": 0.001,
+  "base_rate_source": "evaluation",
+  "base_rate_pool_size": 2000,
+  "vector": [
+    0.22250000000000003,
+    0.20500000000000002,
+    0.18600000000000003,
+    0.14100000000000001,
+    0.14600000000000002,
+    0.07500000000000001,
+    0.024500000000000004
+  ],
+  "accuracy": 0.27,
+  "brier": 0.8298945000000001,
+  "oracle": true,
+  "note": "P* uses evaluation-set base rates, i.e. test-set information. PROTOCOL.md section 3 calls it an oracle that 'uses test information', and section 8 requires it be labelled an oracle wherever it appears."
+}

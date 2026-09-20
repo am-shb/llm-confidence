@@ -1,0 +1,32 @@
+{
+  "arm": "A",
+  "pool": "evaluation",
+  "n": 2000,
+  "ok": 2000,
+  "epsilon": 0.001,
+  "vectorizer": "TfidfVectorizer",
+  "vectorizer_params": {
+    "lowercase": true,
+    "stop_words": "english",
+    "ngram_range": [
+      1,
+      2
+    ],
+    "min_df": 2,
+    "max_features": 50000,
+    "sublinear_tf": true
+  },
+  "classifier": "LogisticRegression",
+  "classifier_params": {
+    "solver": "lbfgs",
+    "max_iter": 2000,
+    "C": 1.0,
+    "random_state": 20260919
+  },
+  "anchor_pool_size": 5503,
+  "vocabulary_size": 50000,
+  "accuracy": 0.708,
+  "brier": 0.4656579863419438,
+  "fit_on": "anchor",
+  "no_evaluation_leakage": true
+}
