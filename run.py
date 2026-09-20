@@ -44,6 +44,23 @@ RATE_LIMIT_CODES = (408, 429, 500, 502, 503, 504)
 _write_lock = threading.Lock()
 
 
+class FatalRunError(RuntimeError):
+    """A run-level infrastructure failure that must never become data.
+
+    401/402/403 and any other non-408/429 4xx mean the request itself is
+    broken (bad key, out of credit, forbidden) -- retrying burns nothing but
+    time, and section 5's "failure" record would score it uniform forever,
+    since completed_ids() would then treat it as done. This is raised instead
+    so main() can abort loudly and leave the item unrecorded, resumable once
+    the cause is fixed.
+    """
+
+    def __init__(self, status, body):
+        super().__init__(f"HTTP {status}: {body[:500]}")
+        self.status = status
+        self.body = body
+
+
 def build_payload(arm, item):
     """The exact request body for this arm and item.
 
@@ -117,7 +134,19 @@ def build_jev_payload(item):
 
 
 def completed_ids(path):
-    """Ids already recorded. Tolerates a truncated final line from a crash."""
+    """Ids already recorded, so a resume does not re-bill them.
+
+    A `status: "failure"` record is a run-level infrastructure failure (rate
+    limiting exhausted, network error, an unhandled exception) -- never a
+    model-behaviour outcome, since 401/402/403 and other fatal HTTP statuses
+    now abort the run instead of becoming a record (see FatalRunError). Such
+    ids are excluded here so a resume retries them instead of leaving them
+    stuck uniform forever. `status: "ok"` records, even ones parse.py will
+    later classify as a parse error, refusal, truncation or bad letter, are
+    legitimate section 5 outcomes and stay done.
+
+    Tolerates a truncated final line from a crash.
+    """
     if not os.path.exists(path):
         return set()
     done = set()
@@ -127,7 +156,10 @@ def completed_ids(path):
             if not line:
                 continue
             try:
-                done.add(json.loads(line)["id"])
+                rec = json.loads(line)
+                if rec.get("status") == "failure":
+                    continue
+                done.add(rec["id"])
             except (json.JSONDecodeError, KeyError):
                 continue
     return done
@@ -151,6 +183,7 @@ def call(arm, item):
     url = DECISIONS_URL if is_jev else CHAT_URL
     started = time.time()
     last_error = None
+    last_http_status = None
 
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -165,7 +198,15 @@ def call(arm, item):
             }
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", "replace")
-            last_error = f"HTTP {exc.code}: {raw[:500]}"
+            redacted = P.redact_error_body(raw)
+            # 401/402/403 and any other non-408/429 4xx are not transient:
+            # the account or the request is broken, not the network. Retrying
+            # wastes time and, worse, section 5 would otherwise score it
+            # uniform as if the model had answered. Fatal, not a record.
+            if 400 <= exc.code < 500 and exc.code not in (408, 429):
+                raise FatalRunError(exc.code, redacted)
+            last_error = f"HTTP {exc.code}: {redacted[:500]}"
+            last_http_status = exc.code
             if exc.code in RATE_LIMIT_CODES and attempt < MAX_ATTEMPTS - 1:
                 time.sleep(min(20 * 2 ** attempt, 300))
             elif attempt == MAX_ATTEMPTS - 1:
@@ -181,17 +222,22 @@ def call(arm, item):
             # record; an unhandled exception here would bypass the write lock
             # and drop the item entirely. Anything unexpected becomes a
             # recorded failure instead. Does not catch KeyboardInterrupt or
-            # SystemExit, which derive from BaseException.
+            # SystemExit, which derive from BaseException. FatalRunError is
+            # raised from inside the HTTPError branch above, a sibling of this
+            # clause, so it propagates straight out and is never caught here.
             last_error = f"{type(exc).__name__}: {exc}"
             if attempt < MAX_ATTEMPTS - 1:
                 time.sleep(10)
 
     # Section 5: a timeout after 3 retries is a failure, never a dropped item.
+    # http_status is null for genuine timeouts/network exhaustion and set for
+    # retry-exhausted HTTP failures (429/5xx) -- parse.py uses it to tell them
+    # apart ("timeout" vs "run_error").
     return {
         "id": item["id"], "arm": arm, "status": "failure",
         "error": last_error, "attempts": MAX_ATTEMPTS,
         "request": P.redact(payload), "response": None,
-        "provider": None,
+        "provider": None, "http_status": last_http_status,
         "latency_s": round(time.time() - started, 3),
         "timestamp": dt.datetime.now(dt.UTC).isoformat(),
     }
@@ -200,11 +246,15 @@ def call(arm, item):
 def snapshot_endpoint(arm, out_dir=RUN_DIR):
     """Record the pinned endpoint's registry entry beside the run.
 
-    Section 4 requires provider and quantization on record. The completion
-    response carries provider but not quantization, and nothing echoes the
-    reasoning defaults, so the registry entry is the evidence.
+    Section 4 requires provider and quantization on record, and confirming
+    `structured_outputs` on each pinned endpoint before the run. The
+    completion response carries provider but not quantization, and nothing
+    echoes the reasoning defaults, so the registry entry is the evidence --
+    and the only place a lost capability or a silent quantization change
+    would show up before money is spent.
     """
     spec = P.ARMS[arm]
+    params = spec["params"]
     url = f"https://openrouter.ai/api/v1/models/{spec['model']}/endpoints"
     req = urllib.request.Request(url, headers={"User-Agent": "jev-study/1.0"})
     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -215,15 +265,44 @@ def snapshot_endpoint(arm, out_dir=RUN_DIR):
         raise SystemExit(
             f"STOP: {spec['provider']} is not serving {spec['model']} any more. "
             f"The pin cannot be honoured; do not silently reroute.")
+    supported_raw = match[0].get("supported_parameters")
+    supported = supported_raw or []
+
+    # Structured-outputs mechanism (F1-V/F2-V/Q-V). Arm J is exempt: its
+    # decisions schema has no structured_outputs concept at all.
+    if params.get("structured_outputs") and "structured_outputs" not in supported:
+        raise SystemExit(
+            f"STOP: {spec['provider']}'s pinned endpoint for {arm} no longer "
+            f"lists structured_outputs. {arm}'s mechanism requires it; do not "
+            f"proceed on a silently degraded endpoint.")
+
+    # Q-L reads the first generated token's logprobs -- no logprobs, no run.
+    if params.get("logprobs") and "logprobs" not in supported:
+        raise SystemExit(
+            f"STOP: {spec['provider']}'s pinned endpoint for {arm} no longer "
+            f"lists logprobs. Q-L cannot score anything without it.")
+
+    quantization = match[0].get("quantization")
+    path = os.path.join(out_dir, f"{arm}_endpoint.json")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            prev = json.load(fh)
+        prev_quant = prev.get("quantization")
+        if prev_quant != quantization:
+            raise SystemExit(
+                f"STOP: {arm}'s pinned endpoint quantization changed from "
+                f"{prev_quant!r} to {quantization!r} since the earlier run. "
+                f"This can shift the distribution a run measures; do not "
+                f"silently proceed on a changed endpoint.")
+
     snap = {
         "arm": arm, "model": spec["model"], "provider": spec["provider"],
-        "quantization": match[0].get("quantization"),
-        "supported_parameters": match[0].get("supported_parameters"),
+        "quantization": quantization,
+        "supported_parameters": supported_raw,
         "context_length": match[0].get("context_length"),
         "pricing": match[0].get("pricing"),
         "captured": dt.datetime.now(dt.UTC).isoformat(),
     }
-    path = os.path.join(out_dir, f"{arm}_endpoint.json")
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(snap, fh, indent=2)
     print(f"  endpoint: {spec['provider']} quant={snap['quantization']} "
@@ -272,11 +351,15 @@ def main():
     def handle(item):
         try:
             rec = call(args.arm, item)
+        except FatalRunError:
+            # Must not be swallowed into a failure record -- see FatalRunError
+            # and the abort handling below. Let it propagate.
+            raise
         except BaseException as exc:      # last-resort guard
             rec = {"id": item["id"], "arm": args.arm, "status": "failure",
                    "error": f"unhandled in call(): {type(exc).__name__}: {exc}",
                    "attempts": MAX_ATTEMPTS, "request": None, "response": None,
-                   "provider": None, "latency_s": None,
+                   "provider": None, "http_status": None, "latency_s": None,
                    "timestamp": dt.datetime.now(dt.UTC).isoformat()}
         with _write_lock:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -294,6 +377,17 @@ def main():
         else:
             with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
                 list(pool.map(handle, todo))
+    except FatalRunError as exc:
+        # Section 5 never scores infrastructure as data: abort loudly instead
+        # of recording a failure for the item in flight. Everything already
+        # written to out_path stays valid and completed_ids() will skip it on
+        # resume; the item that hit this error was NOT written and will be
+        # retried once the cause (e.g. an empty credit balance) is fixed.
+        raise SystemExit(
+            f"STOP: HTTP {exc.status} from the API -- treated as a fatal "
+            f"infrastructure failure, not data. No record was written for "
+            f"the item in flight. {out_path} is unchanged otherwise and the "
+            f"run is resumable once the cause is fixed.\n{exc}")
     finally:
         fh.close()
 

@@ -10,7 +10,9 @@ Nothing here is Jev-specific; Jev is arm J of eight.
 
 import csv
 import hashlib
+import json
 import os
+import re
 import statistics
 
 import numpy as np
@@ -203,6 +205,28 @@ def redact(obj):
     if isinstance(obj, str) and key and key in obj:
         return obj.replace(key, "<redacted>")
     return obj
+
+
+_USER_ID_RE = re.compile(r'"user_id"\s*:\s*"[^"]*"')
+
+
+def redact_error_body(raw):
+    """Redact a raw HTTP error body string (not necessarily valid JSON).
+
+    Section 4 commits to publishing the raw JSONL, and OpenRouter error
+    bodies carry a `user_id` field -- the same leak already closed for the
+    probe artifact via `redact()`. Parse and redact as JSON when possible;
+    fall back to blanking the field with a regex when the body is not valid
+    JSON (or not a dict), so a leak never survives just because the error
+    body was malformed.
+    """
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return _USER_ID_RE.sub('"user_id": "<redacted>"', raw)
+    if not isinstance(obj, dict):
+        return _USER_ID_RE.sub('"user_id": "<redacted>"', raw)
+    return json.dumps(redact(obj))
 
 
 def in_set(rows):

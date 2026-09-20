@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 import protocol as P
@@ -178,3 +180,31 @@ def test_redact_strips_the_account_identifier():
     out = P.redact({"user_id": "user_abc123", "answers": {"x": 1}})
     assert out["user_id"] == "<redacted>"
     assert out["answers"] == {"x": 1}
+
+
+def test_redact_error_body_strips_user_id_from_a_json_body():
+    """run.py's HTTP error bodies come from OpenRouter as JSON carrying
+    user_id -- section 4 publishes the raw JSONL, so a failure record must
+    never leak it, same as any other response.
+    """
+    raw = json.dumps({"error": {"message": "insufficient credit"},
+                       "user_id": "user_abc123"})
+    out = P.redact_error_body(raw)
+    assert "user_abc123" not in out
+    assert "insufficient credit" in out
+
+
+def test_redact_error_body_falls_back_to_regex_for_non_json_bodies():
+    """An error body is not guaranteed to be valid JSON (an HTML error page,
+    a truncated read); the leak must still be closed even then.
+    """
+    raw = 'not json at all but leaks "user_id": "user_xyz789" anyway'
+    out = P.redact_error_body(raw)
+    assert "user_xyz789" not in out
+
+
+def test_redact_error_body_leaves_a_body_with_no_user_id_unchanged_in_content():
+    raw = json.dumps({"error": {"message": "rate limited"}})
+    out = P.redact_error_body(raw)
+    assert "rate limited" in out
+    assert "user_id" not in out

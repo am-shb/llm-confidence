@@ -1,3 +1,4 @@
+import io
 import json
 import urllib.error
 
@@ -146,6 +147,22 @@ def test_completed_ids_on_missing_file_is_empty(tmp_path):
     assert run.completed_ids(str(tmp_path / "nope.jsonl")) == set()
 
 
+def test_completed_ids_skips_a_run_level_failure_so_resume_retries_it(tmp_path):
+    """status: "failure" is a run-level infrastructure failure (rate limiting
+    exhausted, a network error) now that fatal HTTP statuses abort instead of
+    becoming a record -- topping up credit and resuming must retry it, not
+    leave it permanently scored uniform. status: "ok" records, even ones
+    parse.py will later classify as a parse error or refusal, are legitimate
+    section 5 outcomes and must stay done.
+    """
+    path = tmp_path / "r.jsonl"
+    path.write_text(
+        json.dumps({"id": "a", "status": "ok"}) + "\n" +
+        json.dumps({"id": "b", "status": "failure"}) + "\n" +
+        json.dumps({"id": "c", "status": "ok"}) + "\n")
+    assert run.completed_ids(str(path)) == {"a", "c"}
+
+
 def test_payload_never_contains_the_api_key():
     key = P.api_key()
     for arm in CHAT_ARMS:
@@ -213,3 +230,107 @@ def test_snapshot_endpoint_hard_stops_when_the_pin_is_not_serving(monkeypatch, t
     monkeypatch.setattr(run.urllib.request, "urlopen", lambda *a, **k: FakeResponse())
     with pytest.raises(SystemExit, match="Parasail|STOP"):
         run.snapshot_endpoint("Q-V", out_dir=str(tmp_path))
+
+
+def _http_error(code, body):
+    return urllib.error.HTTPError(
+        "http://x", code, "err", {}, io.BytesIO(body.encode("utf-8")))
+
+
+@pytest.mark.parametrize("code", [401, 402, 403, 400, 404, 422])
+def test_call_treats_non_retryable_4xx_as_fatal_not_data(monkeypatch, code):
+    """Out-of-credit (402), bad/forbidden key (401/403) and other non-408/429
+    4xx must never become a `status: "failure"` record -- section 5 would
+    score that uniform forever, and a resume would never retry it (a fixed
+    401/402/403 stays broken data permanently). It must raise instead.
+    """
+    def boom(payload, url=run.CHAT_URL):
+        raise _http_error(code, '{"error": {"message": "nope"}}')
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    with pytest.raises(run.FatalRunError) as exc_info:
+        run.call("Q-L", ITEM)
+    assert exc_info.value.status == code
+
+
+@pytest.mark.parametrize("code", [408, 429])
+def test_call_still_retries_408_and_429_and_records_http_status(monkeypatch, code):
+    """408/429 are transient -- still retried, still recorded as data with the
+    status carried so parse.py can classify it as run_error rather than a
+    genuine network timeout.
+    """
+    attempts = {"n": 0}
+
+    def boom(payload, url=run.CHAT_URL):
+        attempts["n"] += 1
+        raise _http_error(code, '{"error": "rate limited"}')
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    rec = run.call("Q-L", ITEM)
+    assert attempts["n"] == run.MAX_ATTEMPTS
+    assert rec["status"] == "failure"
+    assert rec["http_status"] == code
+
+
+def test_call_redacts_user_id_from_a_fatal_error_body(monkeypatch):
+    """Section 4 publishes the raw JSONL; OpenRouter error bodies can carry a
+    `user_id`. It must never survive into an exception message that could
+    still end up logged or recorded.
+    """
+    def boom(payload, url=run.CHAT_URL):
+        raise _http_error(
+            402, '{"error": {"message": "insufficient credit"}, '
+                 '"user_id": "user_abc123"}')
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    with pytest.raises(run.FatalRunError) as exc_info:
+        run.call("Q-L", ITEM)
+    assert "user_abc123" not in str(exc_info.value)
+    assert "user_abc123" not in exc_info.value.body
+
+
+def test_call_redacts_user_id_even_when_the_error_body_is_not_json(monkeypatch):
+    """The regex fallback must still catch it when the body cannot be parsed
+    as JSON (e.g. an HTML error page or a truncated body).
+    """
+    def boom(payload, url=run.CHAT_URL):
+        raise _http_error(
+            403, 'not json but leaks "user_id": "user_xyz789" anyway')
+    monkeypatch.setattr(run, "_post", boom)
+    monkeypatch.setattr(run.time, "sleep", lambda *_: None)
+
+    with pytest.raises(run.FatalRunError) as exc_info:
+        run.call("Q-L", ITEM)
+    assert "user_xyz789" not in str(exc_info.value)
+    assert "user_xyz789" not in exc_info.value.body
+
+
+def test_main_aborts_loudly_and_writes_no_record_on_a_fatal_error(
+        monkeypatch, tmp_path):
+    """End to end: a fatal HTTP error must abort main() with a clear message
+    naming the status, and the item in flight must not be written to the run
+    file -- not swallowed by handle()'s last-resort BaseException guard into
+    a `status: "failure"` record that a resume would never retry.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run, "snapshot_endpoint", lambda arm: None)
+    monkeypatch.setattr(run.pools, "load_pool",
+                         lambda pool: [dict(ITEM, id="only-item")])
+    monkeypatch.setattr(
+        run, "call",
+        lambda arm, item: (_ for _ in ()).throw(
+            run.FatalRunError(402, "insufficient credit")))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["run.py", "--arm", "Q-L", "--pool", "dev", "--sequential"])
+
+    with pytest.raises(SystemExit, match="402"):
+        run.main()
+
+    out_path = tmp_path / "runs" / "Q-L_dev.jsonl"
+    assert out_path.exists()
+    assert out_path.read_text() == "", \
+        "no record may be written for the item that hit the fatal error"

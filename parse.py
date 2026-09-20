@@ -11,6 +11,7 @@ Vectors come out in canonical LABELS order regardless of the item's shuffle.
 
 Usage:
     ./parse.py --arm Q-L --pool dev
+    ./parse.py --arm J --pool evaluation --run-id 2   # PC2 re-run
 """
 
 import argparse
@@ -27,7 +28,7 @@ import protocol as P
 
 PRED_DIR = "preds"
 FAILURE_KINDS = {"parse_error", "bad_value", "truncated", "refusal",
-                 "bad_letter", "timeout", "empty", "no_logprobs"}
+                 "bad_letter", "timeout", "empty", "no_logprobs", "run_error"}
 
 TAG_RE = re.compile(r"</?(thinking|antml|system|internal|reasoning)\b",
                     re.IGNORECASE)
@@ -130,8 +131,33 @@ def _parse_letter(choice, item):
 
 def parse_record(rec, item):
     """One run record -> (canonical K-vector, status). Never raises."""
+    vec, status, _diag = _parse_record_full(rec, item)
+    return vec, status
+
+
+def _parse_record_full(rec, item):
+    """Like parse_record, but also returns a diagnostics dict:
+
+    {"raw_sum": float or None} -- the pre-floor, pre-renormalize sum of a
+    *verbalized* response's probabilities (section 6's offsum_count needs the
+    RAW sum, which is lost once floor_renorm runs). None for every other
+    mechanism, and for anything that did not reach a vector at all (failures,
+    parse/bad-value errors).
+
+    Kept separate from parse_record so that function's tested 2-tuple
+    contract never changes.
+    """
     if rec.get("status") == "failure":
-        return _uniform(), "timeout"
+        # http_status is null only for genuine timeouts/network exhaustion
+        # (URLError, TimeoutError, a JSON decode failure, or an unhandled
+        # exception with no HTTP response at all); a numeric http_status
+        # means the API answered with an error after retries were exhausted
+        # (429/5xx) -- a distinct, diagnosable run_error. Fatal statuses
+        # (401/402/403, other 4xx) never reach here: run.py raises instead of
+        # writing a record for those.
+        kind = "timeout" if rec.get("http_status") is None else "run_error"
+        return _uniform(), kind, {"raw_sum": None}
+
     resp = rec.get("response") or {}
     mech = P.ARMS[rec["arm"]]["mechanism"]
 
@@ -139,22 +165,24 @@ def parse_record(rec, item):
     if mech == "decisions":
         vec, status = _parse_decisions(resp, item)
         if status != "ok":
-            return _uniform(), status
-        return P.floor_renorm(vec), "ok"
+            return _uniform(), status, {"raw_sum": None}
+        return P.floor_renorm(vec), "ok", {"raw_sum": None}
 
     choices = resp.get("choices") or []
     if not choices:
-        return _uniform(), "empty"
+        return _uniform(), "empty", {"raw_sum": None}
     choice = choices[0]
 
     if mech == "letter":
         vec, status = _parse_letter(choice, item)
+        raw_sum = None
     else:
         vec, status = _parse_verbalized(choice, item)
+        raw_sum = float(vec.sum()) if status == "ok" else None
 
     if status != "ok":
-        return _uniform(), status
-    return P.floor_renorm(vec), "ok"
+        return _uniform(), status, {"raw_sum": None}
+    return P.floor_renorm(vec), "ok", {"raw_sum": raw_sum}
 
 
 def _parse_decisions(resp, item):
@@ -184,11 +212,29 @@ def _parse_decisions(resp, item):
     return vec, "ok"
 
 
-def parse_run(arm, pool):
-    """Parse a whole run file into preds/{arm}_{pool}.npz plus a report."""
+def parse_run(arm, pool, run_id=1):
+    """Parse a whole run file into preds/{arm}_{pool}[_run-id].npz plus a report.
+
+    Two corruptions this guards against, both of which would otherwise report
+    `failures: 0` and emit vectors that all sum to 1:
+
+    - Duplicates: two concurrent writers can produce more records than items.
+      Deduplicated by FIRST occurrence per item id (deterministic); the count
+      dropped is reported, never silent.
+    - Under-coverage: an interrupted, never-resumed run yields fewer records
+      than the pool. Section 5 guarantees failures are never dropped, but
+      nothing guarantees items are never simply absent -- so this hard-fails
+      unless the parsed id set is EXACTLY the pool's id set (no missing ids,
+      no unknown/extra ones either).
+    """
     items = {it["id"]: it for it in pools.load_pool(pool)}
-    path = os.path.join("runs", f"{arm}_{pool}.jsonl")
-    ids, vecs, statuses, leaks = [], [], [], 0
+    pool_ids = set(items)
+    suffix = "" if run_id == 1 else f"_{run_id}"
+    path = os.path.join("runs", f"{arm}_{pool}{suffix}.jsonl")
+
+    seen_ids = set()
+    dup_count = 0
+    records = []  # (id, rec) for first-occurrence rows, in file order
 
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -196,33 +242,81 @@ def parse_run(arm, pool):
             if not line:
                 continue
             rec = json.loads(line)
-            item = items[rec["id"]]
-            vec, status = parse_record(rec, item)
-            ids.append(rec["id"])
-            vecs.append(vec)
-            statuses.append(status)
-            try:
-                content = rec["response"]["choices"][0]["message"]["content"]
-            except (TypeError, KeyError, IndexError):
-                content = ""
-            leaks += bool(has_tag_leakage(content))
+            rid = rec["id"]
+            if rid in seen_ids:
+                dup_count += 1
+                continue
+            seen_ids.add(rid)
+            records.append((rid, rec))
+
+    missing = sorted(pool_ids - seen_ids)
+    extra = sorted(seen_ids - pool_ids)
+    if missing or extra:
+        def _examples(xs, n=5):
+            return xs[:n]
+        raise SystemExit(
+            f"STOP: {path} does not cover {pool} exactly after "
+            f"deduplication. pool={len(pool_ids)} parsed_unique={len(seen_ids)} "
+            f"duplicates_dropped={dup_count} missing={len(missing)} "
+            f"extra={len(extra)}. example_missing={_examples(missing)} "
+            f"example_extra={_examples(extra)}. Refusing to silently produce "
+            f"a corrupt or incomplete result.")
+
+    ids, vecs, statuses, leaks = [], [], [], 0
+    offsum_count = 0
+    offsum_min_raw_sum = None
+    argmax_tie_count = 0
+
+    for rid, rec in records:
+        item = items[rid]
+        vec, status, diag = _parse_record_full(rec, item)
+        ids.append(rid)
+        vecs.append(vec)
+        statuses.append(status)
+
+        raw_sum = diag["raw_sum"]
+        if raw_sum is not None and abs(raw_sum - 1.0) > 1e-6:
+            offsum_count += 1
+            offsum_min_raw_sum = (raw_sum if offsum_min_raw_sum is None
+                                   else min(offsum_min_raw_sum, raw_sum))
+
+        if status == "ok":
+            # np.argmax breaks ties toward whichever label comes first in
+            # LABELS (cs.CV, cs.LG -- the two largest classes), so an exact
+            # tie for top place systematically inflates accuracy for
+            # whichever arm produces it. Checked on the final canonical
+            # vector: the same array devcheck.py's argmax reads.
+            top_two = np.sort(vec)[-2:]
+            if top_two[0] == top_two[1]:
+                argmax_tie_count += 1
+
+        try:
+            content = rec["response"]["choices"][0]["message"]["content"]
+        except (TypeError, KeyError, IndexError):
+            content = ""
+        leaks += bool(has_tag_leakage(content))
 
     from collections import Counter
     counts = Counter(statuses)
     report = {
-        "arm": arm, "pool": pool, "n": len(ids),
+        "arm": arm, "pool": pool, "run_id": run_id, "n": len(ids),
         "ok": counts.get("ok", 0),
         "failures": {k: v for k, v in counts.items() if k in FAILURE_KINDS},
         "failure_total": sum(v for k, v in counts.items() if k in FAILURE_KINDS),
         "tag_leakage": leaks,
+        "duplicates_dropped": dup_count,
+        "offsum_count": offsum_count,
+        "offsum_min_raw_sum": offsum_min_raw_sum,
+        "argmax_tie_count": argmax_tie_count,
     }
 
     os.makedirs(PRED_DIR, exist_ok=True)
-    np.savez(os.path.join(PRED_DIR, f"{arm}_{pool}.npz"),
+    np.savez(os.path.join(PRED_DIR, f"{arm}_{pool}{suffix}.npz"),
              ids=np.array(ids), probs=np.vstack(vecs),
              statuses=np.array(statuses),
              labels=np.array([items[i]["label"] for i in ids]))
-    with open(os.path.join(PRED_DIR, f"{arm}_{pool}_report.json"), "w") as fh:
+    with open(os.path.join(PRED_DIR, f"{arm}_{pool}{suffix}_report.json"),
+              "w") as fh:
         json.dump(report, fh, indent=2)
     return report
 
@@ -231,8 +325,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arm", required=True, choices=P.LLM_ARMS)
     ap.add_argument("--pool", required=True, choices=["dev", "evaluation"])
+    ap.add_argument("--run-id", type=int, default=1,
+                    help="2 for PC2's J re-run (section 7)")
     args = ap.parse_args()
-    report = parse_run(args.arm, args.pool)
+    report = parse_run(args.arm, args.pool, run_id=args.run_id)
     print(json.dumps(report, indent=2), file=sys.stderr)
 
 

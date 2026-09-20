@@ -42,14 +42,13 @@ def test_epsilon_floor_is_applied():
     vec, _ = parse.parse_record(_verbalized(json.dumps(payload)), ITEM)
     # A single application of protocol.floor_renorm leaves floored entries at
     # eps / (1 + (K-1)*eps), which is slightly BELOW eps (0.0009940... at the
-    # default epsilon for K=7) -- not at eps itself. A threshold of 0.999*eps
-    # is tighter than that true value and would reject a correct single-floor
-    # implementation while accepting a double-floored one (double-flooring
-    # pushes the floored entries back up toward eps, since eps/(1+(K-1)*eps)
-    # < eps, so a second floor() call raises them again). Compare against the
-    # derived formula instead of an arbitrary near-eps fraction.
+    # default epsilon for K=7) -- not at eps itself. A DOUBLE application
+    # raises that back up to 0.00099996 (still >= the single-floor value, so
+    # a one-sided ">=" bound cannot tell them apart -- it passes for both).
+    # Assert equality against the derived single-floor formula so a
+    # regression to double-flooring actually fails this test.
     floor = P.EPSILON / (1 + (P.K - 1) * P.EPSILON)
-    assert (vec >= floor - 1e-12).all()
+    assert vec.min() == pytest.approx(floor)
 
 
 def test_malformed_json_is_a_failure_scored_uniform():
@@ -120,11 +119,25 @@ def test_letter_renormalizes_over_the_seven_label_tokens():
 
 def test_letter_labels_absent_from_topk_get_zero_before_the_floor():
     top = [("C", -0.1), ("A", -2.0)]
-    vec, status = parse.parse_record(_letter(top), ITEM)
+    rec = _letter(top)
+    vec, status = parse.parse_record(rec, ITEM)
     assert status == "ok"
-    # Only A and C were returned; the other five sit at the floor.
-    floored = [v for v in vec if v <= P.EPSILON * 1.01]
-    assert len(floored) == 5
+
+    # Independently reconstruct the correct single-floor result by applying
+    # protocol.floor_renorm exactly once to the raw (pre-floor) vector
+    # _parse_letter produces. The old "<= eps * 1.01" threshold is a loose
+    # one-sided bound that a double-floored implementation also satisfies
+    # (double-flooring pushes already-floored entries back UP toward eps);
+    # exact equality against an independently-computed single floor does not.
+    choice = rec["response"]["choices"][0]
+    raw, raw_status = parse._parse_letter(choice, ITEM)
+    assert raw_status == "ok"
+    expected = P.floor_renorm(raw)
+    assert vec == pytest.approx(expected)
+
+    # Only A and C were returned; the other five sit at exactly the floor.
+    at_floor = [v for v in vec if v == pytest.approx(expected.min())]
+    assert len(at_floor) == 5
 
 
 def test_letter_outside_a_to_g_is_a_failure():
@@ -289,3 +302,146 @@ def test_tag_leakage_is_detected_and_does_not_by_itself_fail_the_item():
     assert status == "ok"
     assert parse.has_tag_leakage(content)
     assert not parse.has_tag_leakage(json.dumps(payload))
+
+
+# --- parse_run: the function that turns a run file into every number the
+# study reports (Critical 1). Zero coverage before this point.
+
+def _pool_item(item_id, label="cs.CV"):
+    return {"id": item_id, "label": label, "options": list(P.LABELS)}
+
+
+def _write_pool(tmp_path, pool_name, items):
+    d = tmp_path / "pools"
+    d.mkdir(exist_ok=True)
+    with open(d / f"{pool_name}.jsonl", "w", encoding="utf-8") as fh:
+        for it in items:
+            fh.write(json.dumps(it) + "\n")
+
+
+def _write_run(tmp_path, arm, pool_name, records, run_id=1):
+    d = tmp_path / "runs"
+    d.mkdir(exist_ok=True)
+    suffix = "" if run_id == 1 else f"_{run_id}"
+    with open(d / f"{arm}_{pool_name}{suffix}.jsonl", "w", encoding="utf-8") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec) + "\n")
+
+
+def _ok_record(item_id, payload):
+    return {"id": item_id, "arm": "Q-V", "status": "ok",
+            "response": {"choices": [{"finish_reason": "stop",
+                                      "message": {"content": json.dumps(payload)}}]}}
+
+
+def test_parse_run_deduplicates_a_repeated_id_and_reports_the_count(
+        tmp_path, monkeypatch):
+    """Two concurrent writers producing more records than items must not
+    double-weight an item; the count dropped must be visible, not silent.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_a = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    payload_b = {l: (1.0 if l == "cs.LG" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "dev", [_pool_item("a"), _pool_item("b")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _ok_record("a", payload_a),
+        _ok_record("a", payload_a),   # duplicate: same id, written twice
+        _ok_record("b", payload_b),
+    ])
+
+    report = parse.parse_run("Q-V", "dev")
+
+    assert report["n"] == 2
+    assert report["duplicates_dropped"] == 1
+    assert sorted(np.load("preds/Q-V_dev.npz")["ids"]) == ["a", "b"]
+
+
+def test_parse_run_hard_fails_on_a_missing_item(tmp_path, monkeypatch):
+    """An interrupted, never-resumed run must not silently produce a
+    complete-looking result with fewer items than the pool.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_a = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "dev", [_pool_item("a"), _pool_item("b")])
+    _write_run(tmp_path, "Q-V", "dev", [_ok_record("a", payload_a)])  # "b" absent
+
+    with pytest.raises(SystemExit, match="b"):
+        parse.parse_run("Q-V", "dev")
+
+
+def test_parse_run_hard_fails_on_an_extra_unknown_id(tmp_path, monkeypatch):
+    """An id in the run file that is not part of the pool is just as much a
+    coverage corruption as a missing one, and must not be silently ignored.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_a = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "dev", [_pool_item("a")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _ok_record("a", payload_a),
+        _ok_record("unknown-item", payload_a),
+    ])
+
+    with pytest.raises(SystemExit, match="unknown-item"):
+        parse.parse_run("Q-V", "dev")
+
+
+def test_parse_run_computes_offsum_count_and_argmax_tie_count(
+        tmp_path, monkeypatch):
+    """Both diagnostics are un-reconstructable later: offsum_count needs the
+    RAW pre-floor sum, and argmax_tie_count needs the exact floored values,
+    neither of which survive being folded into an npz of final vectors alone
+    unless parse_run computes and reports them at parse time.
+    """
+    monkeypatch.chdir(tmp_path)
+    # "a": raw probabilities sum to 0.5, not 1 -- off-sum, but not a tie once
+    # renormalized (a single label carries the mass).
+    offsum_payload = {l: (0.5 if l == "cs.LG" else 0.0) for l in P.LABELS}
+    # "b": two labels exactly tied at 0.5 each, raw sum is exactly 1 -- a
+    # genuine argmax tie, not off-sum.
+    tie_payload = {l: (0.5 if l in ("cs.CV", "cs.LG") else 0.0) for l in P.LABELS}
+    # "c": control -- neither off-sum nor tied.
+    control_payload = {l: (1.0 if l == "cs.AI" else 0.0) for l in P.LABELS}
+
+    _write_pool(tmp_path, "dev",
+                [_pool_item("a"), _pool_item("b"), _pool_item("c")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _ok_record("a", offsum_payload),
+        _ok_record("b", tie_payload),
+        _ok_record("c", control_payload),
+    ])
+
+    report = parse.parse_run("Q-V", "dev")
+
+    assert report["n"] == 3
+    assert report["ok"] == 3
+    assert report["offsum_count"] == 1
+    assert report["offsum_min_raw_sum"] == pytest.approx(0.5)
+    assert report["argmax_tie_count"] == 1
+
+
+def test_parse_run_with_run_id_2_reads_and_writes_the_2_paths(
+        tmp_path, monkeypatch):
+    """PC2's re-run is written to runs/{arm}_{pool}_2.jsonl by run.py; parse.py
+    must mirror the convention on both the read and write side.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_a = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "evaluation", [_pool_item("a")])
+    _write_run(tmp_path, "J", "evaluation", [
+        {"id": "a", "arm": "J", "status": "ok",
+         "response": {"answers": {P.JEV_QUESTION_KEY: {
+             "type": "choice", "choice": "cs.CV",
+             "probabilities": {l: (1.0 if l == "cs.CV" else 0.0)
+                                for l in P.LABELS},
+             "confidence": 0.9}}}},
+    ], run_id=2)
+
+    report = parse.parse_run("J", "evaluation", run_id=2)
+
+    assert report["run_id"] == 2
+    assert report["n"] == 1
+    assert (tmp_path / "preds" / "J_evaluation_2.npz").exists()
+    assert (tmp_path / "preds" / "J_evaluation_2_report.json").exists()
+    # The unsuffixed run-1 paths must not have been touched.
+    assert not (tmp_path / "runs" / "J_evaluation.jsonl").exists()
+    assert not (tmp_path / "preds" / "J_evaluation.npz").exists()
