@@ -1,0 +1,29 @@
+{
+  "arm": "F1-V",
+  "model": "anthropic/claude-sonnet-5",
+  "provider": "Anthropic",
+  "quantization": "unknown",
+  "supported_parameters": [
+    "max_tokens",
+    "stop",
+    "reasoning",
+    "include_reasoning",
+    "tools",
+    "tool_choice",
+    "structured_outputs",
+    "response_format",
+    "verbosity",
+    "reasoning_effort"
+  ],
+  "context_length": 1000000,
+  "pricing": {
+    "prompt": "0.000002",
+    "completion": "0.00001",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000002",
+    "input_cache_write": "0.0000025",
+    "input_cache_write_1h": "0.000004",
+    "discount": 0
+  },
+  "captured": "2026-09-20T00:34:56.583124+00:00"
+}

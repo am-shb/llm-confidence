@@ -1,0 +1,36 @@
+{
+  "arm": "F2-V",
+  "model": "openai/gpt-5.6-terra",
+  "provider": "OpenAI",
+  "quantization": "unknown",
+  "supported_parameters": [
+    "reasoning",
+    "include_reasoning",
+    "seed",
+    "max_tokens",
+    "response_format",
+    "structured_outputs",
+    "tools",
+    "tool_choice",
+    "reasoning_effort"
+  ],
+  "context_length": 1050000,
+  "pricing": {
+    "prompt": "0.000001",
+    "completion": "0.000006",
+    "web_search": "0.01",
+    "input_cache_read": "0.0000001",
+    "input_cache_write": "0.00000125",
+    "discount": 0,
+    "overrides": [
+      {
+        "min_prompt_tokens": 272000,
+        "prompt": "0.000002",
+        "completion": "0.000009",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.0000025"
+      }
+    ]
+  },
+  "captured": "2026-09-20T00:29:56.321634+00:00"
+}
