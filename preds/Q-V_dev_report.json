@@ -8,6 +8,7 @@
   "failure_total": 0,
   "tag_leakage": 0,
   "duplicates_dropped": 0,
+  "failures_superseded": 0,
   "offsum_count": 5,
   "offsum_min_raw_sum": 0.25000000000000006,
   "argmax_tie_count": 0

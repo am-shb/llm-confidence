@@ -215,12 +215,22 @@ def _parse_decisions(resp, item):
 def parse_run(arm, pool, run_id=1):
     """Parse a whole run file into preds/{arm}_{pool}[_run-id].npz plus a report.
 
-    Two corruptions this guards against, both of which would otherwise report
-    `failures: 0` and emit vectors that all sum to 1:
+    Corruptions this guards against, none of which would otherwise be visible
+    -- they'd report `failures: 0` (or an inflated one) and emit vectors that
+    all sum to 1:
 
     - Duplicates: two concurrent writers can produce more records than items.
-      Deduplicated by FIRST occurrence per item id (deterministic); the count
-      dropped is reported, never silent.
+      Repeats of an id are resolved by a PREFERENCE, not plain first-occurrence:
+      a record with status "ok" is preferred over one with status "failure",
+      because a resume is allowed to retry an item whose prior record was a
+      non-model failure (HTTP 402, rate-limit exhaustion, ...) and the retry is
+      always appended AFTER the stale failure. Keeping the literal first
+      occurrence would silently discard a working retry and score the stale
+      failure forever. Among records of equal status, the first occurrence
+      wins (deterministic). The two situations are reported separately:
+      `duplicates_dropped` (same-status repeats -- the benign concurrent-writer
+      case) and `failures_superseded` (a failure record superseded by a later
+      ok -- the retry-worked case).
     - Under-coverage: an interrupted, never-resumed run yields fewer records
       than the pool. Section 5 guarantees failures are never dropped, but
       nothing guarantees items are never simply absent -- so this hard-fails
@@ -232,9 +242,8 @@ def parse_run(arm, pool, run_id=1):
     suffix = "" if run_id == 1 else f"_{run_id}"
     path = os.path.join("runs", f"{arm}_{pool}{suffix}.jsonl")
 
-    seen_ids = set()
-    dup_count = 0
-    records = []  # (id, rec) for first-occurrence rows, in file order
+    order = []          # first-occurrence order of ids
+    groups = {}         # id -> list of raw records, in file order
 
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -243,24 +252,48 @@ def parse_run(arm, pool, run_id=1):
                 continue
             rec = json.loads(line)
             rid = rec["id"]
-            if rid in seen_ids:
-                dup_count += 1
-                continue
-            seen_ids.add(rid)
-            records.append((rid, rec))
+            if rid not in groups:
+                groups[rid] = []
+                order.append(rid)
+            groups[rid].append(rec)
 
+    seen_ids = set(groups)
     missing = sorted(pool_ids - seen_ids)
     extra = sorted(seen_ids - pool_ids)
     if missing or extra:
+        total_dup = sum(len(g) - 1 for g in groups.values())
+
         def _examples(xs, n=5):
             return xs[:n]
         raise SystemExit(
             f"STOP: {path} does not cover {pool} exactly after "
             f"deduplication. pool={len(pool_ids)} parsed_unique={len(seen_ids)} "
-            f"duplicates_dropped={dup_count} missing={len(missing)} "
+            f"duplicates_dropped={total_dup} missing={len(missing)} "
             f"extra={len(extra)}. example_missing={_examples(missing)} "
             f"example_extra={_examples(extra)}. Refusing to silently produce "
             f"a corrupt or incomplete result.")
+
+    # Resolve each id's group to a single kept record: prefer status "ok" over
+    # "failure"; among equal-status records, keep the first (deterministic).
+    # A single pass over each group (total work is O(records), not quadratic).
+    dup_count = 0
+    failures_superseded = 0
+    records = []  # (id, rec) for kept rows, in first-occurrence order
+
+    for rid in order:
+        group = groups[rid]
+        if len(group) == 1:
+            records.append((rid, group[0]))
+            continue
+        kept = next((r for r in group if r.get("status") == "ok"), group[0])
+        for r in group:
+            if r is kept:
+                continue
+            if r.get("status") == kept.get("status"):
+                dup_count += 1
+            else:
+                failures_superseded += 1
+        records.append((rid, kept))
 
     ids, vecs, statuses, leaks = [], [], [], 0
     offsum_count = 0
@@ -305,6 +338,7 @@ def parse_run(arm, pool, run_id=1):
         "failure_total": sum(v for k, v in counts.items() if k in FAILURE_KINDS),
         "tag_leakage": leaks,
         "duplicates_dropped": dup_count,
+        "failures_superseded": failures_superseded,
         "offsum_count": offsum_count,
         "offsum_min_raw_sum": offsum_min_raw_sum,
         "argmax_tie_count": argmax_tie_count,

@@ -419,6 +419,82 @@ def test_parse_run_computes_offsum_count_and_argmax_tie_count(
     assert report["argmax_tie_count"] == 1
 
 
+def _failure_record(item_id, http_status=None):
+    return {"id": item_id, "arm": "Q-V", "status": "failure",
+            "http_status": http_status, "response": None}
+
+
+def test_a_successful_retry_supersedes_an_earlier_failure(tmp_path, monkeypatch):
+    """A resume appends the retry AFTER the failure. Keeping the first
+    occurrence would discard the good reading and score the stale failure,
+    making the retry mechanism useless.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_a = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "dev", [_pool_item("a")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _failure_record("a"),          # original: e.g. a 402 or exhausted retries
+        _ok_record("a", payload_a),    # resume's successful retry, appended after
+    ])
+
+    report = parse.parse_run("Q-V", "dev")
+
+    npz = np.load("preds/Q-V_dev.npz", allow_pickle=True)
+    idx = list(npz["ids"]).index("a")
+    assert str(npz["statuses"][idx]) == "ok"
+    assert not (npz["probs"][idx] == pytest.approx(UNIFORM))
+    assert report["failures_superseded"] == 1
+    assert report["duplicates_dropped"] == 0
+
+
+def test_same_status_duplicates_keep_the_first_and_are_counted_separately(
+        tmp_path, monkeypatch):
+    """Two concurrent writers produce two `ok` records for one item. Either is
+    a valid sample; keep the first deterministically and count it as a plain
+    duplicate, not as a superseded failure.
+    """
+    monkeypatch.chdir(tmp_path)
+    payload_first = {l: (1.0 if l == "cs.CV" else 0.0) for l in P.LABELS}
+    payload_second = {l: (1.0 if l == "cs.LG" else 0.0) for l in P.LABELS}
+    _write_pool(tmp_path, "dev", [_pool_item("a")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _ok_record("a", payload_first),
+        _ok_record("a", payload_second),
+    ])
+
+    report = parse.parse_run("Q-V", "dev")
+
+    npz = np.load("preds/Q-V_dev.npz", allow_pickle=True)
+    idx = list(npz["ids"]).index("a")
+    # The first occurrence (cs.CV) must be the one kept, not the second.
+    assert int(np.asarray(npz["probs"][idx]).argmax()) == P.LABELS.index("cs.CV")
+    assert report["duplicates_dropped"] == 1
+    assert report["failures_superseded"] == 0
+
+
+def test_two_failures_for_one_item_stay_a_failure(tmp_path, monkeypatch):
+    """No `ok` record exists, so the item must remain a counted failure scored
+    uniform -- section 5 requires it be recorded, never dropped.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_pool(tmp_path, "dev", [_pool_item("a")])
+    _write_run(tmp_path, "Q-V", "dev", [
+        _failure_record("a"),
+        _failure_record("a", http_status=429),
+    ])
+
+    report = parse.parse_run("Q-V", "dev")
+
+    assert report["n"] == 1
+    assert report["ok"] == 0
+    assert report["failure_total"] == 1
+    assert report["duplicates_dropped"] == 1
+    assert report["failures_superseded"] == 0
+    npz = np.load("preds/Q-V_dev.npz", allow_pickle=True)
+    idx = list(npz["ids"]).index("a")
+    assert npz["probs"][idx] == pytest.approx(UNIFORM)
+
+
 def test_parse_run_with_run_id_2_reads_and_writes_the_2_paths(
         tmp_path, monkeypatch):
     """PC2's re-run is written to runs/{arm}_{pool}_2.jsonl by run.py; parse.py
