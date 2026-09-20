@@ -1,0 +1,15 @@
+{
+  "arm": "Q-V",
+  "pool": "evaluation",
+  "run_id": 1,
+  "n": 2000,
+  "ok": 2000,
+  "failures": {},
+  "failure_total": 0,
+  "tag_leakage": 0,
+  "duplicates_dropped": 0,
+  "failures_superseded": 0,
+  "offsum_count": 56,
+  "offsum_min_raw_sum": 0.15000000000000002,
+  "argmax_tie_count": 13
+}

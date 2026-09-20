@@ -1,0 +1,15 @@
+{
+  "arm": "F1-V",
+  "pool": "evaluation",
+  "run_id": 1,
+  "n": 2000,
+  "ok": 2000,
+  "failures": {},
+  "failure_total": 0,
+  "tag_leakage": 0,
+  "duplicates_dropped": 191,
+  "failures_superseded": 0,
+  "offsum_count": 131,
+  "offsum_min_raw_sum": 0.29000000000000004,
+  "argmax_tie_count": 49
+}
