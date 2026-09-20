@@ -129,7 +129,7 @@ the ones referenced anywhere in this record:
 
 | Cited (pre-rewrite) | Actual (post-rewrite) | Commit |
 | --- | --- | --- |
-| `45041af` | `af1eca0` | Regenerate dev parse reports (what section 1 originally cited) |
+| `45041af` | `af1eca0` | Record three dev-run deviations (what section 1 originally cited) |
 | `65c0f7d` | `fba0dbe` | Freeze prompts and parsers |
 | `b0bc052` | `8389753` | Re-run the F1-V credit failure |
 | `e4b0110` | `493cc10` | Fix wave from the final review |
