@@ -4,7 +4,7 @@
 200-item dev pool, which `PROTOCOL.md` section 4 designates for tuning and debugging and which is
 disjoint from the 2,000-item evaluation pool.
 
-Frozen at commit `45041af4b034aee527a88281f885b4dfe70ac4f9` on branch `jev-pipeline-dev-freeze`.
+Frozen at commit `fba0dbe` (the freeze commit itself; see the note on rewritten hashes below) on branch `jev-pipeline-dev-freeze`.
 Suite: 109 tests passing. `PROTOCOL.md` is byte-identical to `main` — the pre-registration was
 never edited; all divergences are in `DEVIATIONS.md` (7 rows).
 
@@ -115,3 +115,25 @@ Two further observations worth carrying into the writeup:
 `anchor.py` (arms A, P, P\*) and `analyze.py` (section 6 cross-fitting, section 7 metrics and
 bootstrap, section 8 contrasts, figures) are a separate plan, deliberately written AFTER this gate and
 BEFORE the evaluation run, so the analysis code is frozen before any evaluation result exists.
+
+## 7. Note on commit hashes
+
+Git history was rewritten once, on 2026-09-20, before this repository's first push, to remove an
+OpenRouter account identifier from two intermediate commits' copies of `probes/jev_probe.json`. The
+final content was already clean — `f205c90` had redacted it — so the rewrite altered only historical
+blobs and left every tree's final state byte-identical.
+
+The rewrite changed every commit hash from the probe commit onward. Hashes cited in commit messages
+written before 2026-09-20 therefore refer to pre-rewrite commits and will not resolve. The mapping for
+the ones referenced anywhere in this record:
+
+| Cited (pre-rewrite) | Actual (post-rewrite) | Commit |
+| --- | --- | --- |
+| `65c0f7d` | `fba0dbe` | Freeze prompts and parsers |
+| `b0bc052` | `8389753` | Re-run the F1-V credit failure |
+| `e4b0110` | `493cc10` | Fix wave from the final review |
+| `79583a0` | `074efc0` | Dedup prefers ok over failure |
+
+`PROTOCOL.md` was not touched by the rewrite and remains byte-identical to its pre-registration commit,
+which is the property that matters for the study: the pre-registration's content, not its hash, is what
+the results are checked against.
