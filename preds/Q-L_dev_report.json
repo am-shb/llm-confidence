@@ -1,9 +1,14 @@
 {
   "arm": "Q-L",
   "pool": "dev",
+  "run_id": 1,
   "n": 200,
   "ok": 200,
   "failures": {},
   "failure_total": 0,
-  "tag_leakage": 0
+  "tag_leakage": 0,
+  "duplicates_dropped": 0,
+  "offsum_count": 0,
+  "offsum_min_raw_sum": null,
+  "argmax_tie_count": 2
 }
