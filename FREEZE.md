@@ -25,6 +25,12 @@ checked against the `provider` field the response echoes.
 **Q-V and Q-L share model, provider and quantization**, which is the property C3 depends on.
 C3 is an **fp8** estimate — section 9's quantization limitation applies with that specificity.
 
+Caveat on how that is known: quantization parity is **evidenced, not enforced**. Both arms pin the
+provider, but the request does not pin quantization (OpenRouter accepts `provider.quantizations`; it
+is not used). The fp8 figures above come from two registry snapshots taken about ninety seconds apart.
+`snapshot_endpoint` now fails the run if an arm's recorded quantization changes between runs, which
+closes the gap going forward but does not retroactively harden the dev figures.
+
 `max_tokens` is NOT set on any arm. It was in the plan as a guard against truncation, but zero
 truncations occurred on 1,000 dev calls, and an unnecessary cap risks penalising exactly the arms it
 was meant to protect. Truncation remains a section 5 failure if it ever occurs.
@@ -36,8 +42,8 @@ Letter alphabet in force: **A-G**, unchanged. All seven verified as bare single-
 | Check | Result |
 | --- | --- |
 | Letter A-G single-token under Qwen's tokenizer | **PASS** — all seven seen as bare 1-char tokens (A 207 … G 205); top-1 was a bare letter on 200/200 |
-| Tag leakage | **0** on every arm |
-| Truncations | **0** on every arm |
+| Tag leakage | **0** on every arm — but see note: J's zero is structural, not measured |
+| Truncations | **0** on every arm — but see note: J's zero is structural, not measured |
 | Parse failures | **0** on every arm, after re-running one HTTP 402 credit failure |
 | `structured_outputs` honoured live | **200/200** valid standalone JSON on each verbalized arm |
 | Q-L logprobs returned live | **200/200** — Parasail does return them; the local-vLLM fallback stays closed |
@@ -45,6 +51,12 @@ Letter alphabet in force: **A-G**, unchanged. All seven verified as bare single-
 | Qwen arms non-thinking | **enforced and verified** (0 reasoning tokens) — see DEVIATIONS |
 | PC1 dev accuracy spread (J/F1-V/F2-V) | **2.0 points** vs an 8-point threshold → tier-matched framing HOLDS |
 | Our own shuffle uniform | **verified**, label × letter-position over 49 cells, p ≈ 0.85 |
+
+Note on arm J's zeros: the leakage check reads `response.choices[0].message.content`, a path J's
+decisions body has no analogue for, and `_parse_decisions` inspects no finish reason. So J's tag-leakage
+and truncation counts are **structurally incapable of being non-zero** rather than measured as zero.
+This is harmless in substance — J returns a typed decision and emits no free text in which a tag could
+leak, and no text to truncate — but the two cells above should not be read as evidence about J.
 
 ## 3. Dev results
 
@@ -71,9 +83,17 @@ HTTP 402 mid-run.
 
 ## 5. What the dev data says about the study's claim
 
-J leads on raw Brier by **0.0007** over F1-V and **0.0009** over F2-V. The projected PC2 noise floor
-on 2,000 items is ~0.0005 Brier, so both margins sit at the floor. Section 8 requires J to beat both
-"intervals excluding zero, margins above J's PC2 floor" — on dev evidence that is not met.
+J leads on raw Brier by **0.0007** over F1-V and **0.0009** over F2-V.
+
+The PC2 noise floor is **~0.0005 Brier, extrapolated from five identical calls on a single dev item**
+(per-item Brier sd 0.0129, divided by sqrt(2000) and scaled for a two-run difference). That is a
+sanity estimate, NOT a measurement: per-item generation noise almost certainly scales with item
+ambiguity, and five calls on one item is a thin basis for the number that decides whether a 0.0007
+margin means anything. PC2 measures it properly on all 2,000 items, and section 8's rules are applied
+to THAT figure, not to this one.
+
+Taking the estimate at face value, both margins sit at the floor, and section 8's requirement that J
+beat both "intervals excluding zero, margins above J's PC2 floor" is not met on dev evidence.
 
 J is also the **most confident** arm (mean top probability 0.831) while both frontier arms hedge
 (0.645, 0.676) at equal or better accuracy. Equal accuracy at higher confidence is overconfidence,
