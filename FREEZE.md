@@ -4,7 +4,7 @@
 200-item dev pool, which `PROTOCOL.md` section 4 designates for tuning and debugging and which is
 disjoint from the 2,000-item evaluation pool.
 
-Frozen at commit `fba0dbe` — the freeze commit itself. Section 1 originally cited `45041af`, which was the commit BEFORE this record was written: the hash was captured before `FREEZE.md` was committed. Corrected here, and see section 7 on rewritten hashes. on branch `jev-pipeline-dev-freeze`.
+Frozen at commit `fba0dbe` on branch `jev-pipeline-dev-freeze` — the freeze commit itself. Section 1 originally cited `45041af`, which was the commit BEFORE this record was written: the hash was captured before `FREEZE.md` was committed. Corrected here, and see section 7 on rewritten hashes.
 Suite: 109 tests passing. `PROTOCOL.md` is byte-identical to `main` — the pre-registration was
 never edited; all divergences are in `DEVIATIONS.md` (7 rows).
 

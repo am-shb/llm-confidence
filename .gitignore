@@ -16,3 +16,9 @@ __pycache__/
 
 # SDD scratch workspace (ledger, briefs, review packages)
 .superpowers/
+
+# pytest
+.pytest_cache/
+
+# Blog post draft; published at blog.shahbandegan.me
+POST.md

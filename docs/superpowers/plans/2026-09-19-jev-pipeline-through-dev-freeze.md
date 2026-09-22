@@ -41,7 +41,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - [ ] **Step 1: Create the venv and requirements**
 
 ```bash
-cd /Users/amir/code/jev-test
+cd <repo root>
 python3 -m venv .venv
 cat > requirements.txt <<'EOF'
 numpy==2.3.3
