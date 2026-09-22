@@ -41,9 +41,9 @@ Murphy decomposition of top-label Brier:
 
 | Arm | Reliability (miscalibration, fixable) | Resolution (real skill, unfixable) |
 | --- | --- | --- |
-| **J** | **0.0212** (worst) | **0.0404** (best) |
-| F1-V | 0.0088 | 0.0349 |
-| F2-V | 0.0070 | 0.0302 |
+| **J** | **0.0215** (worst) | **0.0406** (best) |
+| F1-V | 0.0085 | 0.0342 |
+| F2-V | 0.0068 | 0.0299 |
 
 **J ranks items better than either frontier model and calibrates worse.** Coverage inspects only the
 accepted set, where J's ranking is strongest. Brier integrates over every item, including the ones it

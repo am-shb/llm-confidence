@@ -29,8 +29,8 @@ and it is the most robust economic claim in the post.
 **"Calibrated: higher confidence means higher accuracy."** *As literally worded, this holds.* Accuracy
 rises monotonically across confidence deciles — 0.380, 0.445, 0.605, 0.625, 0.710, 0.845, 0.875, 0.900,
 0.965, 0.960 — with one trivial inversion in the top two. Spearman rho = 0.445, p = 7.5e-98. And on the
-Murphy decomposition Jev has the **best resolution of any arm tested** (0.0404 against 0.0349 and
-0.0302): it ranks its own uncertainty better than either frontier model. This is a real strength.
+Murphy decomposition Jev has the **best resolution of any arm tested** (0.0406 against 0.0342 and
+0.0299): it ranks its own uncertainty better than either frontier model. This is a real strength.
 
 ## Claims that FAIL
 
